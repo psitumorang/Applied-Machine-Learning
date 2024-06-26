@@ -1,0 +1,914 @@
+---
+title: "Fake News NLP Binary Classifier"
+author: "Philip Situmorang, Brandon Kleinman, Ben Sra Chongbanyatcharoen"
+output:
+  html_document:
+    code_folding: show
+    highlight: haddock
+    number_sections: yes
+    theme: lumen
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: '4'
+  word_document:
+    toc: yes
+    toc_depth: '4'
+urlcolor: blue
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.height=4, fig.width=6, warning = F)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(randomForest, tree, ISLR, rpart, rattle, pROC, partykit, ggplot2, glmnet, leaps, dplyr, keras, neuralnet, imager, ranger, tidyverse, tidytext, lubridate, car, tm,  RColorBrewer, wordcloud, wordcloud2, data.table)
+```
+
+# Introduction 
+
+In this project we seek to create a model which predicts if a news article is fake or true. We follow the standard data science process to arrive at a model which we deem best fit to predict the validity of an article.
+
+We analyze both the title and the text (content) of news articles, building separate models for each to see the efficacy of each in predicting whether a news article is fake or true.
+
+The dataset we use was obtained through Kaggle (www.kaggle.com/datasets/clmentbisaillon/fake-and-real-news-dataset), and the poster, Clément Bisaillon, credits the following two sources for the data:
+
+1. Ahmed H, Traore I, Saad S. “Detecting opinion spams and fake news using text classification”, Journal of Security and Privacy, Volume 1, Issue 1, Wiley, January/February 2018.
+
+2. Ahmed H, Traore I, Saad S. (2017) “Detection of Online Fake News Using N-Gram Analysis and Machine Learning Techniques. In: Traore I., Woungang I., Awad A. (eds) Intelligent, Secure, and Dependable Systems in Distributed and Cloud Environments. ISDDC 2017. Lecture Notes in Computer Science, vol 10618. Springer, Cham (pp. 127-138).
+
+# Data Pre-processing
+
+The dataset is subdivided into two files originally, Fake.csv and True.csv. Both files has a column for title and one column for text in describing the article. In this section we combine the two files into one "text" dataframe and one "title" dataframe, each with an assigned response variables 0 and 1. We then split the dataframe into train-test-validate sets. We use validation set only in the final testing and evaluation phase.
+
+There are 44,898 records of articles in total. We split this into train-test-validate datasets with a ratio of 31,000: 7,000: 6,898. Within each split, we ensure that the number of fake cases and true cases are roughly equal to ensure a balanced dataset. The break down is as follows:
+
+- train set (31,000 records: 16,000 false, 15,000 true)
+- test set (7,000 records: 4,000 false, 3,000 true)
+- validate set (6,989 records: 3,481 false, 3,417 true)
+
+You can find the codes that we used to pre-process the data below.
+
+```{r , eval=FALSE}
+# read in
+fake <- fread("Fake.csv")
+true <- fread("True.csv")
+```
+
+```{r, eval=FALSE}
+# set "y" to be response variable column
+fake <- fake %>% mutate(y = as.factor(0)) 
+true <- true %>% mutate(y = as.factor(1))
+```
+
+```{r, eval=FALSE}
+# combines the two and assigns a unique id for the articles
+combined <- rbind(fake, true) %>% mutate(id = as.factor(row_number()))
+```
+
+## Title Extraction
+
+```{r, eval=FALSE}
+title <- combined$title
+corpus.title <- VCorpus(VectorSource(title))
+```
+
+```{r, eval=FALSE}
+# Converts all words to lowercase
+mycorpus_title <- tm_map(corpus.title, content_transformer(tolower))
+
+# Removes common English stopwords (e.g. "with", "i")
+mycorpus_title <- tm_map(mycorpus_title, removeWords, stopwords("english"))
+
+# Removes any punctuation
+# NOTE: This step may not be appropriate if you want to account for differences
+#       on semantics depending on which sentence a word belongs to if you end up
+#       using n-grams or k-skip-n-grams.
+#       Instead, periods (or semicolons, etc.) can be replaced with a unique
+#       token (e.g. "[PERIOD]") that retains this semantic meaning.
+mycorpus_title <- tm_map(mycorpus_title, removePunctuation)
+
+# Removes numbers
+mycorpus_title <- tm_map(mycorpus_title, removeNumbers)
+
+# Stem words
+mycorpus_title <- tm_map(mycorpus_title, stemDocument, lazy = TRUE) 
+```
+
+```{r, eval=FALSE}
+dtm1.title <- DocumentTermMatrix(mycorpus_title)
+```
+
+```{r, eval=FALSE}
+threshold <- .005*length(mycorpus_title)   # .5% of the total documents = .005 of the total documents
+words.title <- findFreqTerms(dtm1.title, lowfreq=threshold) 
+dtm2.title <- DocumentTermMatrix(mycorpus_title, control = list(dictionary = words.title))
+dim(dtm2.title)
+```
+
+```{r, eval=FALSE}
+title <- cbind(dtm2.title, combined$y, combined$id)
+title <- data.frame(as.matrix(title))  
+title <- title %>% rename(y = V343) %>% rename(id = V344)
+dim(title)
+#title[,343:344]
+```
+
+## 2-gram Title Extraction
+
+**Remark: we decided to exclude the model created using 2-gram in the end because the model created with normal dtm did extremely well**
+
+```{r, eval=FALSE}
+# The 'n' for n-grams
+# n=2 is bi-grams
+n <- 2
+
+# Our custom tokenizer
+# Uses the ngrams function from the NLP package
+# Right now this is for bigrams, but you can change it by changing the value of
+# the variable n (includes N-grams for any N <= n)
+ngram_tokenizer <- function(x, n) {
+  unlist(lapply(ngrams(words(x), 1:n), paste, collapse = "_"), use.names = FALSE)
+}
+```
+
+```{r, eval=FALSE}
+# use ngram_tokenizer()
+control_list_ngram <- list(tokenize = function(x) ngram_tokenizer(x, 2))
+
+dtm.title.ngram <- DocumentTermMatrix(mycorpus_title, control_list_ngram)
+```
+
+```{r, eval=FALSE}
+dtm.title.ngram <- removeSparseTerms(dtm.title.ngram, 1-.001)  
+inspect(dtm.title.ngram )
+```
+
+```{r, eval=FALSE}
+title.ngram <- cbind(dtm.title.ngram, combined$y, combined$id)
+title.ngram <- data.frame(as.matrix(title.ngram))  
+title.ngram <- title.ngram %>% rename(y = V1886) %>% rename(id = V1887)
+#dim(title.ngram)
+#title.ngram[,1880:1887]
+```
+
+## Text Extraction
+
+```{r, eval=FALSE}
+text <- combined$text
+corpus.text <- VCorpus(VectorSource(text))
+```
+
+```{r, eval=FALSE}
+# Converts all words to lowercase
+mycorpus_text <- tm_map(corpus.text, content_transformer(tolower))
+
+# Removes common English stopwords (e.g. "with", "i")
+mycorpus_text <- tm_map(mycorpus_text, removeWords, stopwords("english"))
+
+# Removes any punctuation
+# NOTE: This step may not be appropriate if you want to account for differences
+#       on semantics depending on which sentence a word belongs to if you end up
+#       using n-grams or k-skip-n-grams.
+#       Instead, periods (or semicolons, etc.) can be replaced with a unique
+#       token (e.g. "[PERIOD]") that retains this semantic meaning.
+mycorpus_text <- tm_map(mycorpus_text, removePunctuation)
+
+# Removes numbers
+mycorpus_text <- tm_map(mycorpus_text, removeNumbers)
+
+# Stem words
+mycorpus_text <- tm_map(mycorpus_text, stemDocument, lazy = TRUE) 
+```
+
+```{r, eval=FALSE}
+dtm1.text <- DocumentTermMatrix(mycorpus_text)
+```
+
+**Discussion:** 
+
+Thresholds tried: .01, 3014 words remaining. .015, 2368 words remaining. .02, 1926 words remaining. .025, 1624 remaining.
+
+```{r, eval=FALSE}
+# takes a minute
+threshold <- .025*length(mycorpus_text)   # 2.5% of the total documents
+words.text <- findFreqTerms(dtm1.text, lowfreq=threshold) 
+dtm2.text <- DocumentTermMatrix(mycorpus_text, control = list(dictionary = words.text))
+dim(dtm2.text)
+
+```
+```{r, eval=FALSE}
+text <- cbind(dtm2.text, combined$y, combined$id)
+text <- data.frame(as.matrix(text))  
+text <- text %>% rename(y = V1625)%>% rename(id = V1626)
+dim(text)
+#text[,1620:1626]
+```
+
+**Output data:**
+```{r, eval=FALSE}
+write.csv(title.ngram, "title.csv", row.names=FALSE)
+write.csv(text, "text.csv", row.names=FALSE)
+```
+
+## Train Test Validation Split
+
+Train-test-validation split is 
+**Read in**
+
+```{r, eval=FALSE}
+title_df <- fread("title.csv")
+text_df <- fread("text.csv")
+```
+
+```{r, eval=FALSE}
+text_df_0 <- text_df %>% filter(y=="0")
+text_df_1 <- text_df %>% filter(y=="1")
+
+title_df_0 <- title_df %>% filter(y=="0")
+title_df_1 <- title_df %>% filter(y=="1")
+```
+**Extract training data**
+
+```{r, eval=FALSE}
+set.seed(1) 
+n <- nrow(text_df_0)
+train.index.0 <- sample(n, 16000)
+text.train.0 <- text_df_0[train.index.0,] 
+text.train.leftover.0 <- text_df_0[-train.index.0,]
+
+title.train.0 <- title_df_0[train.index.0,] 
+title.train.leftover.0 <- title_df_0[-train.index.0,]
+
+dim(text.train.0)
+dim(text.train.leftover.0)
+
+dim(title.train.0)
+dim(title.train.leftover.0)
+```
+
+```{r, eval=FALSE}
+set.seed(1) 
+n <- nrow(text_df_1)
+train.index.1 <- sample(n, 15000)
+text.train.1 <- text_df_1[train.index.1,] 
+text.train.leftover.1 <- text_df_1[-train.index.1,]
+
+title.train.1 <- title_df_1[train.index.1,] 
+title.train.leftover.1 <- title_df_1[-train.index.1,]
+
+dim(text.train.1)
+dim(text.train.leftover.1)
+
+dim(title.train.1)
+dim(title.train.leftover.1)
+```
+
+```{r, eval=FALSE}
+title_train <- rbind(title.train.0, title.train.1)
+text_train <- rbind(text.train.0, text.train.1)
+```
+
+**Extract test and validation data**
+
+```{r, eval=FALSE}
+set.seed(1)
+n.leftover <- nrow(text.train.leftover.0)
+test.index.0 <- sample(n.leftover, 4000)
+
+text.test.0 <- text.train.leftover.0[test.index.0,] 
+text.validate.0 <- text.train.leftover.0[-test.index.0,]
+
+title.test.0 <- title.train.leftover.0[test.index.0,] 
+title.validate.0 <- title.train.leftover.0[-test.index.0,]
+
+dim(text.test.0)
+dim(text.validate.0)
+
+dim(title.test.0)
+dim(title.validate.0)
+```
+```{r, eval=FALSE}
+set.seed(1)
+n.leftover <- nrow(text.train.leftover.1)
+test.index.1 <- sample(n.leftover, 3000)
+
+text.test.1 <- text.train.leftover.1[test.index.1,] 
+text.validate.1 <- text.train.leftover.1[-test.index.1,]
+
+title.test.1 <- title.train.leftover.1[test.index.1,] 
+title.validate.1 <- title.train.leftover.1[-test.index.1,]
+
+dim(text.test.1)
+dim(text.validate.1)
+
+dim(title.test.1)
+dim(title.validate.1)
+```
+
+```{r, eval=FALSE}
+title_test <- rbind(title.test.0, title.test.1)
+text_test <- rbind(text.test.0, text.test.1)
+```
+```{r, eval=FALSE}
+title_validate <- rbind(title.validate.0, title.validate.1)
+text_validate <- rbind(text.validate.0, text.validate.1)
+
+#title_validate[,1880:1887]
+#text_validate[,1620:1626]
+```
+
+**Output data:**
+```{r, eval=FALSE}
+write.csv(title_train, "title_train.csv", row.names=FALSE)
+write.csv(text_train, "text_train.csv", row.names=FALSE)
+
+write.csv(title_test, "title_test.csv", row.names=FALSE)
+write.csv(text_test, "text_test.csv", row.names=FALSE)
+
+write.csv(title_validate, "title_validate.csv", row.names=FALSE)
+write.csv(text_validate, "text_validate.csv", row.names=FALSE)
+```
+
+# Explanation on model creation
+We will use logistic regression, neural net, and random forest to create models that predict whether an article is fake news or not. There will be two models created using each method: one will use the article's text data for prediction, and the other will use the title data.
+
+We have separated the next sections by the type of model that we use. (i.e. logistic regression, neural net, and random forest)
+
+# Logistic Regression
+
+```{r, echo=FALSE}
+combined <- readr::read_csv("combined.csv")
+```
+
+```{r, echo=FALSE}
+test_df <- fread("text_test.csv")
+train_df <- fread("text_train.csv")
+validate_df <- fread("text_validate.csv")
+```
+
+```{r}
+train_test_df <- rbind(train_df, test_df)
+```
+
+```{r}
+train_test_id <- train_test_df %>% select(id)
+validate_id <- validate_df %>% select(id)
+```
+
+```{r}
+train.data <- combined[combined$id %in% train_test_id$id, ]
+validate.data <- combined[combined$id %in% validate_id$id, ]
+```
+ 
+```{r}
+totalData <- rbind(train.data, validate.data)
+totalData <- totalData %>% rename(trueValue = y)
+head(totalData)
+```
+
+
+```{r}
+data.text <- totalData$text
+mycorpus1 <- VCorpus(VectorSource(data.text))
+```
+
+```{r}
+# Converts all words to lowercase
+mycorpus_clean <- tm_map(mycorpus1, content_transformer(tolower))
+# Removes common English stopwords (e.g. "with", "i")
+mycorpus_clean <- tm_map(mycorpus_clean, removeWords, stopwords("english"))
+mycorpus_clean <- tm_map(mycorpus_clean, removePunctuation)
+# Removes numbers
+mycorpus_clean <- tm_map(mycorpus_clean, removeNumbers)
+# Stem words
+mycorpus_clean <- tm_map(mycorpus_clean, stemDocument, lazy = TRUE) 
+```
+
+```{r}
+dtm1 <- DocumentTermMatrix(mycorpus_clean)
+```
+
+```{r}
+threshold <- .015*length(mycorpus_clean)   
+words.1 <- findFreqTerms(dtm1, lowfreq=threshold) 
+dtm2<- DocumentTermMatrix(mycorpus_clean, control = list(dictionary = words.1))
+dim(dtm2)
+```
+
+```{r}
+fulldata <- data.frame(as.matrix(dtm2), totalData$trueValue, stringsAsFactors = FALSE)
+fulldata <- fulldata %>% rename(trueValue = totalData.trueValue)
+```
+
+```{r}
+set.seed(1) 
+n <- nrow(fulldata)
+train.index <- c(seq(from = 0, to = nrow(train.data)))
+train <- fulldata[train.index,]
+test <- fulldata[-train.index,]
+dim(train)
+#dim(test) train$totalData.trueValue train[, 2090:2093] fulldata[, 2090:2093]
+```
+
+
+```{r}
+response <- as.numeric(train$trueValue)
+#
+#data2.train$rating
+#X1 <- sparse.model.matrix(rating~., data=data2.train)[, -1]
+#X1$y
+options(na.action='na.pass')
+X1 <- sparse.model.matrix(trueValue~., data=train)[, -1]
+options(na.action='na.action')
+set.seed(1)
+result.lasso <- cv.glmnet(X1, response, alpha=1, family="binomial")
+plot(result.lasso)
+```
+
+```{r}
+coef.1se <- coef(result.lasso, s="lambda.1se")  
+coef.1se <- coef.1se[which(coef.1se !=0),] 
+lasso.words <- rownames(as.matrix(coef.1se))[-1]
+summary(lasso.words)
+```
+
+
+```{r}
+# pick up the positive coef's which are positively related to the prob of being a good review
+good.glm <- coef.1se[which(coef.1se > 0)]
+good.glm <- good.glm[-1]  # took intercept out
+names(good.glm)[1:20]  # which words are positively associated with good ratings
+good.fre <- sort(good.glm, decreasing = TRUE) # sort the coef's
+round(good.fre, 4)[1:20] # leading 20 positive words, amazing!
+length(good.fre)  # 390 good words
+# hist(as.matrix(good.fre), breaks=30, col="red") 
+good.word <- names(good.fre)  # good words with a decreasing order in the coeff's
+```
+
+
+```{r}
+cor.special <- brewer.pal(8,"Dark2")  # set up a pretty color scheme
+wordcloud(good.word[1:100], good.fre[1:100],  # make a word cloud
+          colors=cor.special, ordered.colors=F,min.freq = 100)
+```
+
+**Negative Word Cloud**
+
+```{r}
+bad.glm <- coef.1se[which(coef.1se < 0)]
+cor.special <- brewer.pal(6,"Dark2")
+bad.fre <- sort(-bad.glm, decreasing = TRUE)
+```
+
+```{r}
+bad.word <- names(bad.fre)
+wordcloud(bad.word[2:100], bad.fre[2:100],color=cor.special, ordered.colors=F, min.freq = 100)
+#round(bad.fre, 4)[1:20]
+```
+
+```{r}
+predict.lasso <- predict(result.lasso, as.matrix(test[, -1]), type = "class", s="lambda.1se")
+  # output majority vote labels
+# LASSO testing errors
+mean(test$trueValue != predict.lasso)  
+```
+
+```{r}
+predict.lasso.p <- predict(result.lasso, as.matrix(test[, -1]), type = "response", s="lambda.1se")
+pROC::roc(test$trueValue, predict.lasso.p, plot=TRUE)
+```
+
+** Logistic Regression **
+```{r}
+options(na.action='na.pass')
+sel_cols <- c("trueValue", lasso.words)
+data_sub <- train %>% select(all_of(sel_cols))
+result.glm <- glm(trueValue~., family=binomial, data_sub)
+```
+
+```{r}
+predict.glm <- predict(result.glm, test, type = "response")
+# Majority vote
+class.glm <- ifelse(predict.glm > .5, "1", "0")
+testerror.glm <- mean(test$trueValue != class.glm)
+testerror.glm
+```
+
+** titles **
+```{r}
+data.titles <- totalData$title
+mycorpus2 <- VCorpus(VectorSource(data.titles))
+```
+
+```{r}
+# Converts all words to lowercase
+mycorpus_clean2 <- tm_map(mycorpus2, content_transformer(tolower))
+# Removes common English stopwords (e.g. "with", "i")
+mycorpus_clean2 <- tm_map(mycorpus_clean2, removeWords, stopwords("english"))
+mycorpus_clean2 <- tm_map(mycorpus_clean2, removePunctuation)
+# Removes numbers
+mycorpus_clean2 <- tm_map(mycorpus_clean2, removeNumbers)
+# Stem words
+mycorpus_clean2 <- tm_map(mycorpus_clean2, stemDocument, lazy = TRUE) 
+```
+
+```{r}
+dtm3 <- DocumentTermMatrix(mycorpus_clean2)
+```
+
+```{r}
+threshold2 <- .015*length(mycorpus_clean2)   
+words.2 <- findFreqTerms(dtm3, lowfreq=threshold2) 
+dtm4<- DocumentTermMatrix(mycorpus_clean2, control = list(dictionary = words.2))
+dim(dtm4)
+```
+
+```{r}
+fulldata2 <- data.frame(as.matrix(dtm4), totalData$trueValue, stringsAsFactors = FALSE)
+fulldata2 <- fulldata2 %>% rename(trueValue = totalData.trueValue)
+```
+
+```{r}
+set.seed(1) 
+n <- nrow(fulldata2)
+train.index <- c(seq(from = 0, to = nrow(train.data)))
+train2 <- fulldata2[train.index,]
+test2 <- fulldata2[-train.index,]
+dim(train2)
+#dim(test) train$totalData.trueValue train[, 2090:2093] fulldata[, 2090:2093]
+```
+
+```{r}
+response2 <- as.numeric(train2$trueValue)
+#
+#data2.train$rating
+#X1 <- sparse.model.matrix(rating~., data=data2.train)[, -1]
+#X1$y
+options(na.action='na.pass')
+X1_2 <- sparse.model.matrix(trueValue~., data=train2)[, -1]
+options(na.action='na.action')
+set.seed(1)
+result.lasso2 <- cv.glmnet(X1_2, response2, alpha=1, family="binomial")
+plot(result.lasso2)
+```
+
+```{r}
+coef.1se_2 <- coef(result.lasso2, s="lambda.1se")  
+coef.1se_2 <- coef.1se_2[which(coef.1se_2 !=0),] 
+lasso.words2 <- rownames(as.matrix(coef.1se_2))[-1]
+summary(lasso.words2)
+```
+
+```{r}
+# pick up the positive coef's which are positively related to the prob of being a good review
+good.glm2 <- coef.1se_2[which(coef.1se_2 > 0)]
+good.glm2 <- good.glm2[-1]  # took intercept out
+names(good.glm2)[1:20]  # which words are positively associated with good ratings
+good.fre2 <- sort(good.glm2, decreasing = TRUE) # sort the coef's
+round(good.fre2, 4)[1:20] # leading 20 positive words, amazing!
+length(good.fre2)  # 390 good words
+# hist(as.matrix(good.fre), breaks=30, col="red") 
+good.word2 <- names(good.fre2)  # good words with a decreasing order in the coeff's
+```
+
+```{r}
+cor.special2 <- brewer.pal(8,"Dark2")  # set up a pretty color scheme
+wordcloud(good.word2[1:20], good.fre2[1:20],  # make a word cloud
+          colors=cor.special2, ordered.colors=F)
+```
+**negative word cloud for titles**
+```{r}
+bad.glm2 <- coef.1se_2[which(coef.1se_2 < 0)]
+cor.special2 <- brewer.pal(6,"Dark2")
+bad.fre2 <- sort(-bad.glm2, decreasing = TRUE)
+```
+
+```{r}
+bad.word2 <- names(bad.fre2)
+wordcloud(bad.word2[1:10], bad.fre2[1:20],color=cor.special2, ordered.colors=F)
+#round(bad.fre, 4)[1:20]
+```
+
+
+** Logistic Regression **
+```{r}
+options(na.action='na.pass')
+sel_cols2 <- c("trueValue", lasso.words2)
+data_sub2 <- train2 %>% select(all_of(sel_cols2))
+result.glm2 <- glm(trueValue~., family=binomial, data_sub2)
+```
+
+```{r}
+predict.glm2 <- predict(result.glm2, test2, type = "response")
+# Majority vote
+class.glm2 <- ifelse(predict.glm2 > .5, "1", "0")
+testerror.glm2 <- mean(test2$trueValue != class.glm2)
+testerror.glm2
+```
+
+# Neural Net
+```{r, echo=FALSE}
+#read in data
+title_train <- fread("title_train.csv")
+text_train <- fread("text_train.csv")
+title_test <- fread("title_test.csv")
+text_test <- fread("text_test.csv")
+title_validate <- fread("title_validate.csv")
+text_validate <- fread("text_validate.csv")
+```
+
+### Text
+
+The codes for each step that we took is below.
+The conclusion on the final model is at the bottom.
+
+```{r, echo=FALSE}
+combined <- readr::read_csv("combined.csv")
+```
+```{r, echo=FALSE}
+head(combined)
+```
+
+```{r, echo=FALSE}
+test_df <- fread("text_test.csv")
+train_df <- fread("text_train.csv")
+validate_df <- fread("text_validate.csv")
+```
+
+```{r}
+train_test_df <- rbind(train_df, test_df)
+```
+
+```{r}
+train_test_id <- train_test_df %>% select(id)
+validate_id <- validate_df %>% select(id)
+```
+
+```{r}
+write.csv(train_test_id, "train_test_id.csv", row.names=FALSE)
+write.csv(validate_id, "validate_id.csv", row.names=FALSE)
+```
+
+#### Split
+
+```{r}
+train.data <- combined[combined$id %in% train_test_id$id, ]
+validate.data <- combined[combined$id %in% validate_id$id, ]
+```
+
+#### Vectorize 
+
+```{r}
+num_words <- 10000
+max_length <- 1000
+text_vectorization <- layer_text_vectorization(
+  max_tokens = num_words, 
+  output_sequence_length = max_length, 
+)
+```
+
+```{r}
+text_vectorization %>%adapt(combined$text)
+```
+
+```{r}
+get_vocabulary(text_vectorization)
+```
+
+```{r}
+text_vectorization(matrix(combined$text[1], ncol = 1))
+```
+
+#### Create Model
+
+```{r}
+input <- layer_input(shape = c(1), dtype = "string")
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dropout(0.5) %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+model <- keras_model(input, output)
+```
+
+```{r}
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'binary_crossentropy',
+  metrics = list('accuracy')
+)
+```
+
+```{r}
+set.seed(1)
+history <- model %>% fit(
+  train.data$text,
+  as.numeric(train.data$y),
+  epochs = 25,
+  batch_size = 512,
+  validation_split = 0.2,
+  verbose=2
+)
+```
+**Note:** 98.98% accuracy on training set after 25 epochs. Next we evaluate the model using the validation set.
+
+```{r}
+plot(history)
+```
+
+#### Model evaluation using validation dataset
+
+**Notes: ** 97.4% Accuracy on the validate set.
+
+```{r}
+results <- model %>% evaluate(validate.data$text, as.numeric(validate.data$y), verbose = 0)
+results
+```
+
+
+### Title
+
+The codes for each step that we took is below.
+The conclusion on the final model is at the bottom.
+
+```{r, echo=FALSE}
+combined <- readr::read_csv("combined.csv")
+```
+```{r, echo=FALSE}
+head(combined)
+```
+
+```{r, echo=FALSE}
+train_test_id <- fread("train_test_id.csv")
+validate_id <- fread("validate_id.csv")
+```
+
+#### Split
+
+```{r}
+train.data <- combined[combined$id %in% train_test_id$id, ]
+validate.data <- combined[combined$id %in% validate_id$id, ]
+```
+
+#### Vectorize 
+
+```{r}
+num_words <- 10000
+max_length <- 25
+text_vectorization <- layer_text_vectorization(
+  max_tokens = num_words, 
+  output_sequence_length = max_length, 
+)
+```
+
+```{r}
+text_vectorization %>%adapt(combined$title)
+```
+
+```{r}
+get_vocabulary(text_vectorization)
+```
+
+#### Create Model
+
+```{r}
+input <- layer_input(shape = c(1), dtype = "string")
+output <- input %>% 
+  text_vectorization() %>% 
+  layer_embedding(input_dim = num_words + 1, output_dim = 16) %>%
+  layer_global_average_pooling_1d() %>%
+  layer_dense(units = 16, activation = "relu") %>%
+  layer_dropout(0.5) %>% 
+  layer_dense(units = 1, activation = "sigmoid")
+model <- keras_model(input, output)
+```
+
+```{r}
+model %>% compile(
+  optimizer = 'adam',
+  loss = 'binary_crossentropy',
+  metrics = list('accuracy')
+)
+```
+
+```{r}
+set.seed(1)
+history <- model %>% fit(
+  train.data$title,
+  as.numeric(train.data$y),
+  epochs = 50,
+  batch_size = 512,
+  validation_split = 0.2,
+  verbose=2
+)
+```
+
+**Note:** 99.46% accuracy on training set after 50 epochs.
+
+```{r}
+plot(history)
+```
+
+#### Model evaluation using validation dataset
+**Notes: ** 94.92% accuracy on validate set.
+
+```{r}
+results <- model %>% evaluate(validate.data$title, as.numeric(validate.data$y), verbose = 0)
+results
+```
+
+# Random Forest
+
+```{r, echo=FALSE}
+#read in data
+setwd("~/Library/Mobile Documents/com~apple~CloudDocs/★Wharton/Spring 2022/STAT701 Modern Data Mining/Final Projects/Working Folder/")
+title_train <- fread("title_train.csv")
+text_train <- fread("text_train.csv")
+title_test <- fread("title_test.csv")
+text_test <- fread("text_test.csv")
+title_validate <- fread("title_validate.csv")
+text_validate <- fread("text_validate.csv")
+```
+
+```{r, echo=FALSE}
+#turn all NAs in dtm into 0
+title_train[is.na(title_train)] <- 0
+title_test[is.na(title_test)] <- 0
+title_validate[is.na(title_validate)] <- 0
+text_train[is.na(text_train)] <- 0
+text_test[is.na(text_test)] <- 0
+text_validate[is.na(text_validate)] <- 0
+
+#turn all data into ASCII
+
+colnames(text_train) <- iconv(names(text_train), to = "ASCII", sub = "")
+colnames(text_test) <- iconv(names(text_test), to = "ASCII", sub = "")
+colnames(text_validate) <- iconv(names(text_validate), to = "ASCII", sub = "")
+colnames(title_train) <- iconv(names(title_train), to = "ASCII", sub = "")
+colnames(title_test) <- iconv(names(title_test), to = "ASCII", sub = "")
+colnames(title_validate) <- iconv(names(title_validate), to = "ASCII", sub = "")
+
+```
+
+## RF - text model
+
+We used `ranger` to create our random forest model.
+We set `mtry` to be 1/3 of the number of predictors, and set `num.tree` to be higher than the threshold at which OBB MSE converges.
+We ended up with `mtry` = 542 and `num.tree` = 500
+
+This is the code that we used to create the model:
+```{r}
+set.seed(1)
+fit.text.rf <- ranger::ranger(y~., text_train, mtry=542, num.tree=500, importance="impurity")
+```
+
+**Model validation**
+Next, we use the validation dataset to calculate the error of the model.
+```{r}
+predict.text.rf <- predict(fit.text.rf, data=text_validate, type="response")
+fit.text.rf.err <- mean(text_validate$y != predict.text.rf$predictions)
+```
+
+We found that the error is only `r fit.text.rf.err`.
+
+## RF - title model
+This is the code that we used to create the model:
+```{r}
+set.seed(2)
+fit.title.rf <- ranger::ranger(y~., title_train, mtry=629, num.tree=500, importance="impurity")
+```
+
+**Model validation**
+Next, we use the validation dataset to calculate the error of the model.
+```{r}
+predict.title.rf <- predict(fit.title.rf, data=title_validate, type="response")
+fit.title.rf.err <- mean(title_validate$y != predict.title.rf$predictions)
+```
+
+We found that the error is only `r fit.title.rf.err`.
+
+# Model Selection and Conclusion
+
+Finally, we look at the error of each model calculated using our validate dataset.
+We found that logistic regression is most effective in using articles' text data to predict whether an article is fake news or not.
+On the other hand, random forest performs best in using articles' title data to predict.
+
+
+**Each model's error (calculated using validate data set)**
+
+For models that use *text* to predict:
+
+- logistic regression = `r testerror.glm`
+- neural net = 0.026
+- random forest = `r fit.text.rf.err`
+
+For models that use *title* to predict:
+
+- logistic regression = `r testerror.glm2`
+- neural net = 0.0508
+- random forest = `r fit.title.rf.err`

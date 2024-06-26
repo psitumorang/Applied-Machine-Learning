@@ -1,0 +1,3 @@
+A natural language processing project of creating binary classification model detecting fake news articles.
+
+Concepts: NLP, Logistic Regression, Multi Layer Perceptron, Random Forest
