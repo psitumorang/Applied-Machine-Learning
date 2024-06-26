@@ -1,0 +1,434 @@
+---
+title: "Breast Cancer"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width=8, fig.height=4)
+options(scipen = 0, digits = 3)  # controls base R output
+# check if you have ISLR package, if not, install it
+if(!require('pacman')) {install.packages('pacman')}
+pacman::p_load(ggplot2, dplyr, tidyverse, gridExtra, ggrepel, plotly, skimr, tidytext, car, data.table) # add the packages needed
+
+#if(!require('matrixStats')) {install.packages('matrixStats')}
+#if(!require('egg')) {install.packages('egg')}
+#if(!require('factoextra')) {install.packages('factoextra')}
+
+library(egg)
+library(matrixStats)
+library(factoextra)
+```
+
+
+\pagebreak
+
+# Overview {-}
+
+Breast cancer sub-type
+
+
+[The Cancer Genome Atlas (TCGA)](https://www.cancer.gov/about-nci/organization/ccg/research/structural-genomics/tcga), a landmark cancer genomics program by National Cancer Institute (NCI), molecularly characterized over 20,000 primary cancer and matched normal samples spanning 33 cancer types. The genome data is open to public from the [Genomic Data Commons Data Portal (GDC)](https://portal.gdc.cancer.gov/).
+ 
+In this study, we focus on 4 sub-types of breast cancer (BRCA): basal-like (basal), Luminal A-like (lumA), Luminal B-like (lumB), HER2-enriched. The sub-type is based on PAM50, a clinical-grade luminal-basal classifier. 
+
+* Luminal A cancers are low-grade, tend to grow slowly and have the best prognosis.
+* Luminal B cancers generally grow slightly faster than luminal A cancers and their prognosis is slightly worse.
+* HER2-enriched cancers tend to grow faster than luminal cancers and can have a worse prognosis, but they are often successfully treated with targeted therapies aimed at the HER2 protein. 
+* Basal-like breast cancers or triple negative breast cancers do not have the three receptors that the other sub-types have so have fewer treatment options.
+
+We will try to use mRNA expression data alone without the labels to classify 4 sub-types. Classification without labels or prediction without outcomes is called unsupervised learning. We will use K-means and spectrum clustering to cluster the mRNA data and see whether the sub-type can be separated through mRNA data.
+
+
+
+```{r}
+brca <- fread("brca_subtype.csv")
+
+# get the sub-type information
+brca_subtype <- brca$BRCA_Subtype_PAM50
+brca <- brca[,-1]
+```
+
+
+    
+208 in Basal, 91 in Her2, 628 in lumA, 233 in lumB.
+    
+```{r}
+aggregate(brca_subtype, by=list(brca_subtype), FUN=length)
+```
+
+Randomly picking 5 genes and plot the histogram by each sub-type.
+
+```{r}
+#rand_genes <- sample(colnames(brca), 5)
+rand_genes <- c("RPS10P7", "KLF13", "PRND", "ANKRD66", "ZNF259")
+```
+```{r}
+brca_1 <- data.frame(subset(brca, select = rand_genes), brca_subtype) 
+```
+
+```{r}
+brca_1_LumA <- brca_1 %>% filter(brca_subtype == "LumA")
+
+hist(brca_1_LumA$RPS10P7,
+main="RPS10P7 Gene in LumA patients",
+xlab="Amount of gene",
+col="darkmagenta",
+freq=FALSE
+)
+
+hist(brca_1_LumA$KLF13,
+main="KLF Gene in LumA patients",
+xlab="Amount of gene",
+col="darkmagenta",
+freq=FALSE
+)
+
+hist(brca_1_LumA$PRND,
+main="PRND Gene in LumA patients",
+xlab="Amount of gene",
+col="darkmagenta",
+freq=FALSE
+)
+
+hist(brca_1_LumA$ANKRD66,
+main="ANKRD66 Gene in LumA patients",
+xlab="Amount of gene",
+col="darkmagenta",
+freq=FALSE
+)
+
+hist(brca_1_LumA$ZNF259,
+main="ZNF259 Gene in LumA patients",
+xlab="Amount of gene",
+col="darkmagenta",
+freq=FALSE
+)
+```
+```{r}
+brca_1_LumB <- brca_1 %>% filter(brca_subtype == "LumB")
+
+hist(brca_1_LumB$RPS10P7,
+main="RPS10P7 Gene in LumB patients",
+xlab="Amount of gene",
+col="orange",
+freq=FALSE
+)
+
+hist(brca_1_LumB$KLF13,
+main="KLF Gene in LumB patients",
+xlab="Amount of gene",
+col="orange",
+freq=FALSE
+)
+
+hist(brca_1_LumB$PRND,
+main="PRND Gene in LumB patients",
+xlab="Amount of gene",
+col="orange",
+freq=FALSE
+)
+
+hist(brca_1_LumB$ANKRD66,
+main="ANKRD66 Gene in LumB patients",
+xlab="Amount of gene",
+col="orange",
+freq=FALSE
+)
+
+hist(brca_1_LumB$ZNF259,
+main="ZNF259 Gene in LumB patients",
+xlab="Amount of gene",
+col="orange",
+freq=FALSE
+)
+```
+
+```{r}
+brca_1_Basal <- brca_1 %>% filter(brca_subtype == "Basal")
+
+hist(brca_1_Basal$RPS10P7,
+main="RPS10P7 Gene in Basal patients",
+xlab="Amount of gene",
+col="red",
+freq=FALSE
+)
+
+hist(brca_1_Basal$KLF13,
+main="KLF Gene in Basal patients",
+xlab="Amount of gene",
+col="red",
+freq=FALSE
+)
+
+hist(brca_1_Basal$PRND,
+main="PRND Gene in Basal patients",
+xlab="Amount of gene",
+col="red",
+freq=FALSE
+)
+
+hist(brca_1_Basal$ANKRD66,
+main="ANKRD66 Gene in Basal patients",
+xlab="Amount of gene",
+col="red",
+freq=FALSE
+)
+
+hist(brca_1_Basal$ZNF259,
+main="ZNF259 Gene in Basal patients",
+xlab="Amount of gene",
+col="red",
+freq=FALSE
+)
+```
+```{r}
+brca_1_Her2 <- brca_1 %>% filter(brca_subtype == "Her2")
+
+hist(brca_1_Her2$RPS10P7,
+main="RPS10P7 Gene in Her2 patients",
+xlab="Amount of gene",
+col="lightblue",
+freq=FALSE
+)
+
+hist(brca_1_Her2$KLF13,
+main="KLF Gene in Her2 patients",
+xlab="Amount of gene",
+col="lightblue",
+freq=FALSE
+)
+
+hist(brca_1_Her2$PRND,
+main="PRND Gene in Her2 patients",
+xlab="Amount of gene",
+col="lightblue",
+freq=FALSE
+)
+
+hist(brca_1_Her2$ANKRD66,
+main="ANKRD66 Gene in Her2 patients",
+xlab="Amount of gene",
+col="lightblue",
+freq=FALSE
+)
+
+hist(brca_1_Her2$ZNF259,
+main="ZNF259 Gene in Her2 patients",
+xlab="Amount of gene",
+col="lightblue",
+freq=FALSE
+)
+```
+    c) Remove gene with zero count and no variability. Then apply logarithmic transform.
+``` {r}
+# remove columns with 0 counts and zero variance
+sel_cols <- which(colSums(abs(brca)) != 0)
+brca_sub <- brca[, sel_cols, with=F]
+```
+
+
+``` {r}
+# log
+brca_sub <- log2(as.matrix(brca_sub+1e-10))
+```
+
+Apply kmeans on the transformed dataset with 4 centers and output the discrepancy table between the real sub-type `brca_subtype` and the cluster labels.
+
+```{r}
+brca_sub_kmeans <- kmeans(x = brca_sub, 4) 
+table(brca_subtype, brca_sub_kmeans$cluster)
+```
+
+Spectrum clustering: to scale or not to scale?
+
+    
+``` {r}
+# center and scale the data
+brca_sub_scaled_centered <- scale(as.matrix(brca_sub), center = T, scale = T)
+svd_ret <- irlba::irlba(brca_sub_scaled_centered, nv = 10)
+names(svd_ret)
+```
+
+``` {r}
+# Approximate the PVE
+num_col <- ncol(brca_sub)
+svd_var <- svd_ret$d^2/(nrow(brca_sub_scaled_centered)-1)
+pve_apx <- svd_var/num_col
+plot(pve_apx, type="b", pch = 19, frame = FALSE)
+```
+
+
+We should scale for clustering purposes. Some genes measure in the thousands and while others in hundreds or less, and by scaling we ensure that we are measuring euclidean distance relative to the measurements within each gene.
+
+**Centered and Scaled**
+```{r}
+pca_ret <- prcomp(brca_sub, center = T, scale. = T)
+
+pca_ret$rotation <- pca_ret$rotation[, 1:20]   
+pca_ret$x <- pca_ret$x[, 1:20]
+```
+
+
+**Centered and unscaled**
+```{r}
+pca_ret_unscaled <- prcomp(brca_sub, center = T, scale. = F)
+
+pca_ret_unscaled$rotation <- pca_ret_unscaled$rotation[, 1:20]   
+pca_ret_unscaled$x <- pca_ret_unscaled$x[, 1:20]
+```
+
+``` {r}
+## plot top 20 loadings
+top_k <- 20
+
+## get pc1 and pc2
+pc1 <- data.frame(loading = pca_ret$rotation[,1],
+gene = rownames(pca_ret$rotation),
+pc = "PC1") #hist(pc1$loading)
+pc2 <- data.frame(loading = pca_ret$rotation[,2],
+gene = rownames(pca_ret$rotation),
+pc = "PC2") #hist(pc2$loading)
+
+# get top_k of pc1 and pc2
+pc1_top <- pc1 %>% arrange(-loading) %>% slice(1:top_k)
+pc2_top <- pc2 %>% arrange(-loading) %>% slice(1:top_k)
+
+plot1 <- rbind(pc1_top, pc2_top) %>%
+ggplot(aes(x = reorder(gene, -loading), y = loading)) +
+geom_point() +
+ggtitle("Top loadings (centered and scaled data) ") +
+xlab("Gene") +
+facet_wrap(~pc, nrow = 1, scales = "free_x") +
+theme_bw() +
+theme(axis.text.x = element_text(angle = -45, hjust = 0, vjust = 1))
+```
+
+``` {r}
+## get pc1 and pc2 unscaled
+pc1_unscaled <- data.frame(loading = pca_ret_unscaled$rotation[,1],
+gene = rownames(pca_ret_unscaled$rotation),
+pc = "PC1") #hist(pc1$loading)
+pc2_unscaled <- data.frame(loading = pca_ret_unscaled$rotation[,2],
+gene = rownames(pca_ret_unscaled$rotation),
+pc = "PC2") #hist(pc2$loading)
+
+# get top_k of pc1 and pc2
+pc1_top <- pc1_unscaled %>% arrange(-loading) %>% slice(1:top_k)
+pc2_top <- pc2_unscaled %>% arrange(-loading) %>% slice(1:top_k)
+
+plot2 <- rbind(pc1_top, pc2_top) %>%
+ggplot(aes(x = reorder(gene, -loading), y = loading)) +
+geom_point() +
+ggtitle("Top loadings (centered and unscaled)") +
+xlab("Gene") +
+facet_wrap(~pc, nrow = 1, scales = "free_x") +
+theme_bw() +
+theme(axis.text.x = element_text(angle = -45, hjust = 0, vjust = 1))
+```
+
+```{r}
+
+egg::ggarrange(plot1, plot2)
+```
+
+Spectrum clustering: center but do not scale the data
+
+Use the first 4 PCs of the centered and unscaled data and apply kmeans. Finding a reasonable number of clusters using within sum of squared with the elbow rule.
+
+```{r}
+fviz_nbclust(brca_sub, kmeans, method = "wss")
+```
+
+```{r}
+kmean_ret <- kmeans(x = pca_ret_unscaled$x[, 1:4], 4)
+```
+    
+Choosing an optimal cluster number and applying kmeans.
+
+
+```{r}
+p_centroids <- data.table(x = kmean_ret$centers[,1],
+y = kmean_ret$centers[,2])
+
+p1 <- data.table(x = pca_ret_unscaled$x[,1],
+y = pca_ret_unscaled$x[,2],
+col = as.factor(brca_subtype),
+cl = as.factor(kmean_ret$cluster))
+
+ggplot() +
+geom_point(aes(x = x, y = y, size = 5), p_centroids) +
+geom_point(aes(x = x, y = y, col = col, shape = cl), p1) +
+xlab("PC1") +
+ylab("PC2") 
+```
+
+No evidence that using PCs help in clustering.
+
+```{r}
+# Original data
+table(brca_subtype, brca_sub_kmeans$cluster)
+
+# PC
+table(brca_subtype, kmean_ret$cluster)
+
+```
+    
+
+Plotted the patient in magenta below (not using black to distinguish it from centroids). We can eyeball that patient x is closest to cluster 2, which is associated mostly with LumA patients. Calculation is included below to show that indeed x is closest to cluster 2 (distance is 358 in the pc1 pc2 projection).
+    
+```{r}
+x_patient <- fread("brca_x_patient.csv")
+```
+
+``` {r}
+# remove columns with 0 counts
+x_sub <- x_patient[, sel_cols, with=F]
+```
+
+``` {r}
+# log
+x_sub <- log2(as.matrix(x_sub+1e-10))
+```
+
+``` {r}
+# including x patient data at the very last row of selected brca dataframe (index 1161)
+brca_x_sub <- rbind(brca_sub, x_sub)
+```
+
+```{r}
+# find the principal PC1 and PC2 of patient x
+pca_ret_x <- prcomp(brca_x_sub, center = T, scale. = F)
+
+pca_ret_x$rotation <- pca_ret_x$rotation[, 1:20]   
+pca_ret_x$x <- pca_ret_x$x[, 1:20]
+
+```
+
+``` {r}
+# just get the tail value for patient x 
+pc_x <- tail(pca_ret_x$x, n=1)
+```
+
+``` {r}
+# plot the patient x in pink
+p2 <- data.table(x = pc_x[1],
+y = pc_x[2],
+col = "Patient X",
+cl = "none")
+
+ggplot() +
+geom_point(aes(x = x, y = y, size = 5), p_centroids) +
+geom_point(aes(x = x, y = y, col = col, shape = cl), p1) +
+geom_point(aes(x = x, y = y, col= col, size = 5), p2) +
+xlab("PC1") +
+ylab("PC2") 
+```
+``` {r}
+# find euclidean distance
+p3 <- data.table(p_centroids,
+cl = c(1,2,3,4),
+pc1_x = pc_x[1],
+pc2_x = pc_x[2] )
+
+p3$euclid = (((p3$pc2_x - p3$y)^2) + ((p3$pc1_x-p3$x)^2)) ^ .5 
+```
