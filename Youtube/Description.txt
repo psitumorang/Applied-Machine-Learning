@@ -1,0 +1,3 @@
+Title: Youtube Views Regressor
+Description: Using dimensionality reduction and random forest models to predict the success of youtube videos.
+Stack: Apache Spark, Scikit-Learn, Python, Seaborn
