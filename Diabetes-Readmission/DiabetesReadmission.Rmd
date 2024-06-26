@@ -1,0 +1,225 @@
+---
+title: "Predicting Readmission for Diabetes Inpatients"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.width = 7, fig.height = 4)
+if(!require("pacman")) install.packages("pacman")
+pacman::p_load(dplyr, ggplot2, glmnet, car, data.table, pROC)   #add your packages here
+```
+
+I. EDA
+
+```{r}
+diabetes <- read.csv('diabetic.data.csv', na.strings = "?")
+readmission <- read.csv('readmission.csv', na.strings = "?")
+```
+
+
+```{r}
+readmission$readmittedLess30 <- ifelse(readmission$readmitted == "<30", 1, 0)
+readmission <- as.data.frame(unclass(readmission), stringsAsFactors = TRUE)
+readmission$readmittedLess30 <- as.factor(readmission$readmittedLess30)
+readmission <- subset(readmission, select = -c(readmitted))
+```
+
+
+```{r}
+readmission <- na.omit(readmission)
+sum(is.na(readmission))
+glimpse(readmission)
+#imputing the null values isnt worth the trouble becuase we have so much data
+```
+```{r}
+#number of patients
+length(unique(diabetes$patient_nbr))
+#number of encounters
+nrow(diabetes)
+```
+
+```{r}
+summary(readmission)
+```
+
+
+```{r}
+ggplot(readmission, aes(x = num_lab_procedures, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+
+ggplot(readmission, aes(x = num_medications, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+
+
+ggplot(readmission, aes(x = time_in_hospital, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+
+ggplot(readmission, aes(x = num_procedures , fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+ 
+     
+ggplot(readmission, aes(x = number_outpatient, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+
+ggplot(readmission, aes(x = number_emergency, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+
+ggplot(readmission, aes(x = number_inpatient, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+
+ggplot(readmission, aes(x = number_diagnoses, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~disch_disp_modified)
+```
+
+
+
+```{r}
+ggplot(readmission, aes(x = num_lab_procedures, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+
+ggplot(readmission, aes(x = num_medications, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+
+
+ggplot(readmission, aes(x = time_in_hospital, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+
+ggplot(readmission, aes(x = num_procedures , fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+ 
+     
+ggplot(readmission, aes(x = number_outpatient, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+
+ggplot(readmission, aes(x = number_emergency, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+
+ggplot(readmission, aes(x = number_inpatient, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+
+ggplot(readmission, aes(x = number_diagnoses, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~age_mod)
+```
+
+```{r}
+ggplot(readmission, aes(x = num_lab_procedures, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+
+ggplot(readmission, aes(x = num_medications, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+
+
+ggplot(readmission, aes(x = time_in_hospital, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+
+ggplot(readmission, aes(x = num_procedures , fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+ 
+     
+ggplot(readmission, aes(x = number_outpatient, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+
+ggplot(readmission, aes(x = number_emergency, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+
+ggplot(readmission, aes(x = number_inpatient, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+
+ggplot(readmission, aes(x = number_diagnoses, fill= readmittedLess30)) + geom_histogram(position = position_dodge()) +
+theme_bw() + facet_wrap(~insulin)
+```
+
+II. Methodology and Model Selection
+
+```{r}
+#remove patient number and encounter id
+readmission <- subset (readmission, select = -c(encounter_id,patient_nbr))
+```
+
+```{r}
+#LASSO Prep
+X <- model.matrix(readmittedLess30~., readmission)[,-1]
+Y <- readmission[, 29]
+dim(X)
+colnames(X)
+```
+
+```{r}
+set.seed(10)
+fit1.cv <- cv.glmnet(X, Y, alpha=1, family="binomial", nfolds = 10, type.measure = "deviance")
+plot(fit1.cv)
+```
+
+```{r}
+coef.1se <- coef(fit1.cv, s="lambda.1se")
+coef.1se <- coef.1se[which(coef.1se !=0),]
+rownames(as.matrix(coef.1se))
+```
+
+```{r}
+coef.min <- coef(fit1.cv, s="lambda.min")
+coef.min <- coef.min[which(coef.min !=0), ]
+rownames(as.matrix(coef.min))
+```
+
+We now compare between 1se and min. Fit.logit.1 uses 1se coefficients whereas fit.logit.2 uses min coefficients. The AUC for 1se model (fit.logit.1) is larger and it is more parsimonious so we select this model.
+
+```{r}
+fit.logit.1 <- glm(readmittedLess30 ~ time_in_hospital + num_medications + number_emergency + number_inpatient + number_diagnoses + insulin + diabetesMed + disch_disp_modified + age_mod + diag1_mod + diag3_mod, family = binomial, data = readmission)
+```
+
+```{r}
+summary(fit.logit.1)
+```
+
+```{r}
+Anova(fit.logit.1)
+```
+
+```{r}
+fit.logit.2 <- glm(readmittedLess30 ~ num_medications + number_emergency + number_inpatient + number_diagnoses + insulin + diabetesMed + disch_disp_modified + age_mod + diag1_mod + diag3_mod, family = binomial, data = readmission)
+```
+
+
+```{r}
+fit1.roc<- roc(readmission$readmittedLess30, fit.logit.1$fitted, plot=T, col="blue")
+fit2.roc<- roc(readmission$readmittedLess30, fit.logit.2$fitted, plot=T, col="blue")
+```
+
+
+```{r}
+# The AUC for 1se model (fit.logit.1) is larger and it is more parsimonious so we select this model.
+auc(fit1.roc)
+auc(fit2.roc)
+```
+
+III. Classifier
+
+Mislabeling a readmission means false positive $a_{0,1}=L(Y=0, \hat Y=1)$
+Mislabeling a non-readmission means false negative $a_{1,0}=L(Y=1, \hat Y=0)$
+The cost of mislabeling a readmission is **twice** of that mislabeling a non-readmission
+Which means $a_{0,1}=2a_{1,0}$
+
+$$P(Y=1 \vert X) > \frac{\frac{a_{0,1}}{a_{1,0}}}{1 + \frac{a_{0,1}}{a_{1,0}}}$$
+$$P(Y=1 \vert X) > \frac{\frac{2}{1}}{1 + \frac{2}{1}}$$
+$$P(Y=1 \vert X) > \frac{2}{3}$$
+
+```{r}
+pred3 <- data.frame(p = seq(0,1, length.out=101))
+```
+```{r}
+MCE_lst <- list()
+
+for (p in pred3$p) {
+  fit1.pred.b <- as.factor(ifelse(fit.logit.1$fitted > p, "1", "0"))
+  MCE <- (sum(fit1.pred.b[readmission$readmittedLess30 == "1"] != "1")
+              + 2* sum(fit1.pred.b[readmission$readmittedLess30 == "0"] != "0"))/length(readmission$readmittedLess30)
+  MCE_lst <- c(MCE_lst, MCE)
+} 
+  
+pred3$MCE <- as.numeric(MCE_lst)
+```
+```{r}
+ggplot(pred3, aes(p, MCE))  + geom_line()
+```
+
