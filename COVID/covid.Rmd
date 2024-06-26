@@ -1,0 +1,283 @@
+---
+title: "COVID-19 Case Study"
+output: html_document
+---
+
+```{r Setup, include=FALSE, results='hide', warning=FALSE}
+knitr::opts_chunk$set(echo = T, fig.width=8, fig.height=4)
+options(scipen = 999, digits = 3)  # controls base R output
+
+# Package setup
+if(!require("pacman")) install.packages("pacman")
+
+pacman::p_load(car, tidyverse, dplyr, ggplot2, data.table, lubridate, glmnet, kableExtra, stargazer)
+```
+
+
+# Background
+
+The outbreak of the novel Corona virus disease 2019 (COVID-19) [was declared a public health emergency of international concern by the World Health Organization (WHO) on January 30, 2020](https://www.who.int/dg/speeches/detail/who-director-general-s-statement-on-ihr-emergency-committee-on-novel-coronavirus-(2019-ncov)). Upwards of [112 million cases have been confirmed worldwide, with nearly 2.5 million associated deaths](https://covid19.who.int/). Within the US alone, there have been [over 500,000 deaths and upwards of 28 million cases reported](https://covid.cdc.gov/covid-data-tracker/#trends_dailytrendscases). Governments around the world have implemented and suggested a number of policies to lessen the spread of the pandemic, including mask-wearing requirements, travel restrictions, business and school closures, and even stay-at-home orders. The global pandemic has impacted the lives of individuals in countless ways, and though many countries have begun vaccinating individuals, the long-term impact of the virus remains unclear.
+
+The impact of COVID-19 on a given segment of the population appears to vary drastically based on the socioeconomic characteristics of the segment. In particular, differing rates of infection and fatalities have been reported among different [racial groups](https://www.cdc.gov/coronavirus/2019-ncov/covid-data/investigations-discovery/hospitalization-death-by-race-ethnicity.html), [age groups](https://www.cdc.gov/coronavirus/2019-ncov/covid-data/investigations-discovery/hospitalization-death-by-age.html), and [socioeconomic groups](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7221360/). One of the most important metrics for determining the impact of the pandemic is the death rate, which is the proportion of people within the total population that die due to the the disease. 
+
+## Data Summary {-}
+
+The data comes from several different sources: 
+
+1. [County-level infection and fatality data](https://github.com/nytimes/covid-19-data) - This dataset gives daily cumulative numbers on infection and fatality for each county. 
+    * [NYC data](https://github.com/nychealth/coronavirus-data)
+2. [County-level socioeconomic data](https://www.ers.usda.gov/data-products/atlas-of-rural-and-small-town-america/download-the-data/) - The following are the four relevant datasets from this site.   
+    i. Income - Poverty level and household income. 
+    ii. Jobs - Employment type, rate, and change.
+    iii. People - Population size, density, education level, race, age, household size, and migration rates.
+    iv. County Classifications - Type of county (rural or urban on a rural-urban continuum scale).
+
+**There are two main goals for this study.** 
+
+1. Number of deaths vary drastically across State. We want to find out how State relate to the death rate.
+
+2. There have been studies on COVID racial disparities. Looking for evidence in our data to show that the proportion of race relates to the death at county level.
+
+
+```{r, data prep, eval = F}
+# This is how we created the covid_county_midterm_spring_2022.csv
+# DONOT RUN this chunk
+
+# county-level socialeconomic information
+county_data <- fread("covid_county(1).csv") 
+# county-level COVID case and death
+covid_rate <- fread("covid_rates(1).csv")
+
+# northeast regions
+northeast <- c("CT", "DC", "ME", "MA", "NH", 
+               "NJ", "NY", "PA", "MD", "RI", "VT")
+
+covid_county_temp <- covid_rate %>% 
+  filter(date == "2020-09-01") %>% 
+  mutate(log_death_rate = log( (cum_deaths+1)/(TotalPopEst2019+2) )) %>%
+  select(FIPS, cum_deaths, log_death_rate)
+
+# join with county-level demographic data
+covid_county_temp <- 
+  left_join(covid_county_temp,
+            county_data, 
+            by = "FIPS") %>% 
+  filter(State %in% northeast) %>% 
+  
+  drop_na()
+
+# take a subset of the demographic info
+covid_county_sub <- covid_county_temp %>%
+  select(log_death_rate, State, Deep_Pov_All, PovertyAllAgesPct, PerCapitaInc, UnempRate2019, PctEmpFIRE, PctEmpConstruction, PctEmpTrans, PctEmpMining, PctEmpTrade, PctEmpInformation, PctEmpAgriculture, PctEmpManufacturing, PctEmpServices, PopDensity2010, OwnHomePct, Age65AndOlderPct2010, TotalPop25Plus, Under18Pct2010, Ed2HSDiplomaOnlyPct, Ed3SomeCollegePct, Ed4AssocDegreePct, Ed5CollegePlusPct, ForeignBornPct, Net_International_Migration_Rate_2010_2019, NetMigrationRate1019, NaturalChangeRate1019, TotalPopEst2019, WhiteNonHispanicPct2010, Type_2015_Update, RuralUrbanContinuumCode2013, UrbanInfluenceCode2013, Perpov_1980_0711, HiCreativeClass2000, HiAmenity, Retirement_Destination_2015_Update)
+
+# output
+write.csv(covid_county_sub, "C:\\Users\\phili\\Desktop\\Projects\\Applied-Machine-Learning\\Covid\\covid_2022.csv")
+```
+
+
+
+```{r read data}
+covid_county <- read.csv("covid_2022.csv") # let's not use fread to avoid unexpected problems.
+```
+
+There are 37 variables in total, and there are 242 counties in total. There are no missing values as indicated by the summary below.
+
+```{r}
+summary(covid_county)
+```
+
+
+
+# 2. EDA
+
+During the course of pandemic, policies are usually implemented at state level and thus vary among states, which may further lead to the variability of death rate among states. We first study the death rates at state level via the following EDA. 
+
+Below the number of counties by State.
+
+```{r}
+covid_county %>% group_by(State) %>% summarise(num_counties = n()) 
+```
+
+State of New Jersey (NJ) has the highest median of -6.42
+
+```{r}
+covid_county %>%
+  group_by(State) %>%
+  summarise_at(vars(log_death_rate), list(median = median))
+```
+
+
+States have varying covid death rates as indicated by the differences in the median among them. Some states such as NY have numerous counties and these counties have high variance in death rates among them. DC does not have a box because it only has one county (itself) and thus no spread of county death rates to display.
+
+```{r}
+ggplot(covid_county, aes(x=State, y=log_death_rate, fill=State)) + geom_boxplot() + coord_flip()
+```
+
+
+# 3. Analyses
+
+There are a number of studies indicating that COVID affected minority groups more.
+In the following analyses, we focus on the effect of `WhiteNonHispanicPct2010` over `log_death_rate`. 
+
+
+## 3.1 fit1
+
+Run a regression of `log_death_rate` vs. `WhiteNonHispanicPct2010` controlling `State`  (without interactions)  as `fit1`. 
+
+Controlling for State WhiteNonHispanicPct2010 is a significant variable at the .01 level as indicated by Anova() below. The variable has a coefficient of -0.03811, meaning on average when percentage of whites in counties increases by 1 percentage point, log death rate decreases by about -0.03811, controlling for State. 
+
+```{r}
+fit1 <- lm(log_death_rate~WhiteNonHispanicPct2010 + State, data=covid_county)
+Anova(fit1)
+```
+
+```{r}
+summary(fit1)
+```
+
+## 3.2 fit.final
+
+a final parsimonious model  to identify a set of important variables that are related to `log_death_rate` using first LASSO  then backward elimination.
+
+Using LASSO to pick up a few variables in addition to `State`.  
+
+The variables selected are: StateDC, StateMA, StateMD, StateME, StateNH, StateNJ, StateNY, StatePA, StateRI, StateVT, PctEmpFIRE, ForeignBornPct, TotalPopEst2019, WhiteNonHispanicPct2010, UrbanInfluenceCode2013. 
+
+```{r}
+Y <- covid_county$log_death_rate
+X <- model.matrix(log_death_rate~., data=covid_county)[, -1]
+
+##X <- model.matrix(log_death_rate~., data=covid_county_sub)
+##colnames(X) dim(X) dim(covid_county_sub$log_death_rate) X
+```
+
+```{r}
+# create index needed to force in state vars
+colx <- colnames(X)
+state_index <- c(rep(1, length(colx)))
+
+# we mark State variables with 0s and other variables with 1s
+for (i in 1:length(colx)) {
+  if (startsWith(colx[i], "State")) {
+    state_index[i] <- 0
+  }
+}
+
+#check sum(state_index) length(colnames(X))
+```
+
+```{r}
+# force in state
+set.seed(1)
+fit.force.cv <- cv.glmnet(X, Y, alpha=1, nfolds=12, intercept = T,
+                       penalty.factor = state_index)  
+```
+
+```{r}
+coef.1se <- coef(fit.force.cv, s="lambda.1se")  
+coef.1se <- coef.1se[which(coef.1se !=0),] 
+coef.1se
+```
+
+```{r}
+var.1se <- rownames(as.matrix(coef.1se))[-1]
+
+lm.input <- as.formula(paste("log_death_rate", "~", paste(var.1se, collapse = "+"))) 
+lm.input
+```
+
+The plot below indicates that lambda.1se is reasonable to have a small testing error. The MSE is just above .7 which is not too far away from the minimum mse which is just below .7.
+
+```{r}
+#produce plot of test MSE by lambda value
+plot(fit.force.cv) 
+```
+
+```{r}
+best_lambda <- fit.force.cv$lambda.min
+```
+
+
+
+ We start with set of variables obtained from lasso. The steps are listed below.
+
+1.) ForeignBornPct has highest p value of 0.70778 so we remove that variable first. 
+2.) TotalPopEst2019 next has a p-value of 0.05488 so we remove that next. 
+3.) The final fit using this method is  State + PctEmpFIRE + WhiteNonHispanicPct2010 + 
+    UrbanInfluenceCode2013, all of which has a p-value of less than our .01 threshold. 
+
+See steps below.
+
+```{r}
+fit.backward.1 <- lm(log_death_rate ~ State + PctEmpFIRE + 
+    ForeignBornPct + TotalPopEst2019 + WhiteNonHispanicPct2010 + 
+    UrbanInfluenceCode2013, data = covid_county)
+
+summary(fit.backward.1)
+```
+
+```{r}
+fit.backward.2 <- lm(log_death_rate ~ State + PctEmpFIRE + 
+    TotalPopEst2019 + WhiteNonHispanicPct2010 + 
+    UrbanInfluenceCode2013, data = covid_county)
+
+summary(fit.backward.2)
+```
+```{r}
+fit.backward.3 <- lm(log_death_rate ~ State + PctEmpFIRE + 
+    WhiteNonHispanicPct2010 + 
+    UrbanInfluenceCode2013, data = covid_county)
+
+summary(fit.backward.3)
+```
+
+Running a final model `fit.final` of `log_death_rate` vs the set of variables from backward elimination (Q4.iii). Also include `WhiteNonHispanicPct2010` regardless since we know the death rate among the elderly is higher. Report the summary of `fit.final`. 
+
+Some states have positive coefficients whereas others negative, which means that some states such as NJ have higher death rates (positive coefficents) compared to others with negative coeffs (such as NY. The three non-state variables included are PctEmpFRE, WhiteNonHispanicPct2010, and UrbanInfluenceCode2013.
+
+```{r}
+fit.final <- lm(log_death_rate ~ State + PctEmpFIRE + 
+    WhiteNonHispanicPct2010 + 
+    UrbanInfluenceCode2013, data = covid_county)
+
+summary(fit.final)
+```
+
+`WhiteNonHispanicPct2010` significant at .01 level controlling for all other variables in `fit.final`, as indicated by p-value of well below .01.
+
+```{r}
+Anova(fit.final)
+```
+
+
+State is significant at .01 level controlling for all others as indicated by its p-value by Anova() below. Controlling for other variables, the State of Massachusetts (MA) has the largest log_death_rate as indicated below with a coefficient of -5.8315.
+
+```{r}
+Anova(fit.final)
+```
+
+```{r}
+fit.final.nointercept <- (lm(log_death_rate ~  0 + State + PctEmpFIRE + 
+    WhiteNonHispanicPct2010 + 
+    UrbanInfluenceCode2013, data = covid_county))
+```
+
+```{r}
+finalcoef <- as.data.frame(fit.final.nointercept$coefficients) 
+
+finalcoef <- tibble::rownames_to_column(finalcoef, "term")
+arrange(finalcoef, desc(fit.final.nointercept$coefficients))
+```
+
+It seems that the linear model assumptions are reasonably met. The residuals graph shows that linearity assumption is met, and while there may be an indication of some heteroscedacity it is not too eminent. The qqplot suggests that normality assumption is also met, as indicated by most observations falling on or close to the diagonal line.
+
+```{r eval=T}
+par(mfrow=c(1,2), mar=c(5,2,4,2), mgp=c(3,0.5,0)) # plot(fit3) produces several plots
+plot(fit.final, 1, pch=16) # residual plot
+abline(h=0, col="blue", lwd=2)
+plot(fit.final, 2) # qqplot
+```
+
+
+
+
