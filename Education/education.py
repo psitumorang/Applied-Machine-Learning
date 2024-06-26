@@ -49,38 +49,38 @@ We selected 19 features that we believe are highly correlated with a country's e
 """
 
 # features 1-3, expenditure related features
-ft_1 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/expenditure_as_percentage_of_gdp.csv')
-ft_2 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/percentage_of_total_public_expenditure.csv')
-ft_3 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/staff_compensation_as_percentage_of_expenditure.csv')
+ft_1 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/expenditure_as_percentage_of_gdp.csv')
+ft_2 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/percentage_of_total_public_expenditure.csv')
+ft_3 = pd.read_csv('/content/drive/MyDrive/staff_compensation_as_percentage_of_expenditure.csv')
 
 # features 4-6, pupil teacher ratio
-ft_4 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/pupil_teacher_ratio_primary.csv')
-ft_5 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/pupil_teacher_ratio_secondary.csv')
-ft_6 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/pupil_teacher_ratio_tertiary.csv')
+ft_4 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/pupil_teacher_ratio_primary.csv')
+ft_5 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/pupil_teacher_ratio_secondary.csv')
+ft_6 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/pupil_teacher_ratio_tertiary.csv')
 
 # features 7-11, teacher training
-ft_7 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/percentage_of_trained_teachers_preprimary.csv')
-ft_8 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/percentage_of_trained_teachers_primary.csv')
-ft_9 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/percentage_of_trained_teachers_low_secondary_ed.csv')
-ft_10 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/percentage_of_trained_teachers_secondary.csv')
-ft_11 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/percentage_of_trained_teachers_postsec_nontertiary.csv')
+ft_7 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/percentage_of_trained_teachers_preprimary.csv')
+ft_8 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/percentage_of_trained_teachers_primary.csv')
+ft_9 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/percentage_of_trained_teachers_low_secondary_ed.csv')
+ft_10 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/percentage_of_trained_teachers_secondary.csv')
+ft_11 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/percentage_of_trained_teachers_postsec_nontertiary.csv')
 
 # features 12-16, schooling duration
-ft_12 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/thr_duration_of_preprimary_education.csv')
-ft_13 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/thr_duration_of_primary_ed.csv')
-ft_14 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/thr_duration_of_lower_secondary_ed.csv')
-ft_15 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/thr_duration_of_upper_secondary_education.csv')
-ft_16 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/thr_duration_of_post_secondary_non_tertiary_ed.csv')
+ft_12 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/thr_duration_of_preprimary_education.csv')
+ft_13 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/thr_duration_of_primary_ed.csv')
+ft_14 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/thr_duration_of_lower_secondary_ed.csv')
+ft_15 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/thr_duration_of_upper_secondary_education.csv')
+ft_16 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/thr_duration_of_post_secondary_non_tertiary_ed.csv')
 
 # feature 17, duration of compulsory education
-ft_17 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/duration_of_compulsory_education.csv')
+ft_17 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/duration_of_compulsory_education.csv')
 
 # features 18-19, internet users and personal computers
-ft_18 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/internet_users.csv')
-ft_19 = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Education Indicators csvs/personal_computers.csv')
+ft_18 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/internet_users.csv')
+ft_19 = pd.read_csv('/content/drive/MyDrive/Education Indicators csvs/personal_computers.csv')
 
 # feature 20-21, World Bank Development Indicators
-wb_development_indicators = pd.read_csv('/content/drive/MyDrive/CIS 545 - Group Project Folder/Data/Indicators.csv')
+wb_development_indicators = pd.read_csv('/content/drive/MyDrive/Data/Indicators.csv')
 
 """Select the desired indicators from the World Bank Development Indicators and format them to match with the education data """
 
