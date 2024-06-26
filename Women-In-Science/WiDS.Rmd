@@ -1,0 +1,288 @@
+---
+title: "Representation of Women In Data Science" 
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$reset(echo = FALSE, results = "hide", fig.width=8, fig.height=4)
+options(scipen = 0, digits = 3)  # controls base R output
+# check if you have ISLR package, if not, install it
+if(!require('pacman')) {install.packages('pacman')}
+pacman::p_load(ISLR, readxl, tidyverse, magrittr, dplyr, ggplot2)
+```
+
+
+\pagebreak
+
+# Overview
+
+# Women in Science
+
+
+Are women underrepresented in science in general? How does gender relate to the type of educational degree pursued? Does the number of higher degrees increase over the years? In an attempt to answer these questions, a dataset is assembled from [NSF](https://ncses.nsf.gov/pubs/nsf19304/digest/field-of-degree-women) about various degrees granted in the U.S. from 2006 to 2016. 
+
+
+## Data preparation  
+
+``` {r eval=TRUE}
+library(readxl)
+file <- "data/WomenData_06_16.xlsx"
+data2_raw <- read_excel(file)
+```
+
+Clean the names of each variables. (Change variable names to  `Field`,`Degree`, `Sex`, `Year` and `Number` )
+
+``` {r eval=TRUE}
+library(data.table)
+setnames(data2_raw, old = c('Field and sex', 'Degrees Awarded'), new = c('Field', 'Number'))
+```
+
+Set the variable natures properly. 
+``` {r eval=TRUE}
+data2_raw$Year <- as.numeric(data2_raw$Year)
+data2_raw$Number <- as.numeric(data2_raw$Number)
+
+data2 <- data2_raw
+```
+
+``` {r eval=TRUE}
+# check for any NA in list
+data2_raw$Field[is.na(data2_raw$Field)] 
+data2_raw$Degree[is.na(data2_raw$Degree)] 
+data2_raw$Sex[is.na(data2_raw$Sex)] 
+data2_raw$Year[is.na(data2_raw$Year)] 
+data2_raw$Number[is.na(data2_raw$Number)] 
+
+unique(data2_raw$Field)
+unique(data2_raw$Degree)
+unique(data2_raw$Sex)
+unique(data2_raw$Year)
+unique(data2_raw$Number)
+
+
+```
+
+
+``` {r eval=TRUE}
+unique(data2$Field)
+```
+
+In the year 2015 for BS degrees there are more male Non-S&E major than male S&E majors.
+
+The most important finding in this is there are roughly equal numbers of male and female S&E majors in the year 2015 among those pursuing a BS degree. Specifically there were 322,935 female and 327,122 male. So simply by looking at this subset of the data we can conclude the assumption that women are underrepresented in the field of science and engineering is false.
+
+
+
+``` {r eval=TRUE}
+
+data2 <- data2 %>% mutate(Category = if_else(Field == "Non-S&E", "Non-S&E", "S&E"))
+data2_2015 <- filter(data2, Year == 2015 & Degree == "BS") 
+data2_sum <- data2_2015 %>% group_by(Category, Sex) %>% summarise(Freq = sum(Number))
+data2_sum2 <- data2_2015 %>% group_by(Field, Sex) %>% summarise(Freq = sum(Number))
+
+data2_sum
+data2_sum2
+
+library(scales)
+
+# 2015 Male S&E and non-S&E
+ggplot(filter(data2_sum, Sex == "Male"), 
+  aes(x = Category , y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Comparison between S&E and Non-S&E majors for male students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1000000, by=100000))
+
+# 2015 Female S&E and non-S&E
+ggplot(filter(data2_sum, Sex == "Female"), 
+  aes(x = Category , y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Comparison between S&E and Non-S&E majors for female students in 2015") + scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+# 2015 Male All Fields
+ggplot(filter(data2_sum2, Sex == "Male"), 
+  aes(x= reorder(Field, Freq), y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Comparison among all fields for male students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1000000, by=100000)) + coord_flip()
+
+# 2015 Female All Fields
+ggplot(filter(data2_sum2, Sex == "Female"), 
+  aes(x= reorder(Field, Freq), y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Comparison among all fields for female students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1000000, by=100000)) + coord_flip()
+
+
+```
+
+## Analysis ##
+
+Gender effects over different types of degrees: female students outnumber male students overall, but the gap closes the more advanced the degree. For example, female students outnumber male students by ~280k for BS degrees, ~150k for MS degrees, and by only ~200 for PhD degrees. 
+
+When considering all degree types (BS, MS, and PhD as opposed to just BS in the previous problem), women are slightly underrepresented in 2015, making up 48.4% of those in the S&E field.
+
+
+``` {r eval=TRUE}
+data2_2015b <- filter(data2, Year == 2015) 
+data2_sumb <- data2_2015b %>% group_by(Category, Sex) %>% summarise(Freq = sum(Number))
+data2_sum2b <- data2_2015b %>% group_by(Field, Sex) %>% summarise(Freq = sum(Number))
+data2_sum3b <- data2_2015b %>% group_by(Degree, Sex) %>% summarise(Freq = sum(Number))
+
+data2_sumb
+data2_sum2b
+data2_sum3b
+
+# 2015 male degree types
+ggplot(filter(data2_sum3b, Sex == "Male"), 
+  aes(x= reorder(Degree, -Freq), y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Degree types among male students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+# 2015 female degree types
+ggplot(filter(data2_sum3b, Sex == "Female"), 
+  aes(x= reorder(Degree, -Freq), y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Degree types among female students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+# 2015 BS 
+ggplot(filter(data2_sum3b, Degree == "BS"), 
+  aes(x= Sex, y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Number of BS students, male and female in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+# 2015 MS 
+ggplot(filter(data2_sum3b, Degree == "MS"), 
+  aes(x= Sex, y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Number of MS students, male and female in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+# 2015 PhD 
+ggplot(filter(data2_sum3b, Degree == "PhD"), 
+  aes(x= Sex, y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Number of PhD students, male and female in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 50000, by=10000))
+
+# 2015 Male All Fields
+ggplot(filter(data2_sum2b, Sex == "Male"), 
+  aes(x= reorder(Field, Freq), y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Comparison among all fields for male students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1000000, by=100000)) + coord_flip()
+
+# 2015 Female All Fields
+ggplot(filter(data2_sum2b, Sex == "Female"), 
+  aes(x= reorder(Field, Freq), y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("Comparison among all fields for female students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=200000)) + coord_flip()
+
+# 2015 Male S&E and non-S&E
+ggplot(filter(data2_sumb, Sex == "Male"), 
+  aes(x = Category , y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("S&E and Non-S&E number comparison, male students in 2015") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1000000, by=100000))
+
+# 2015 Female S&E and non-S&E
+ggplot(filter(data2_sumb, Sex == "Female"), 
+  aes(x = Category , y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("S&E and Non-S&E number comparison, female students in 2015") + scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+# 2015 S&E Male and Female
+ggplot(filter(data2_sumb, Category == "S&E"), 
+  aes(x = Sex , y = Freq)) + 
+  geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") +
+  ggtitle("S&E students, male and female comparison in 2015") + scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+```
+
+
+## Analysis ##
+the number of S&E majors increased steadily from 2006-2016.
+
+From 2006 to 2016 the number of Female S&E majors increased from 307,708 to 434,609, and the number of Male S&E majors from 322,601 to 468,893.
+
+```{r eval=TRUE}
+data2_year <- data2 %>% group_by(Year, Sex, Category) %>% summarise(Freq = sum(Number))
+
+data2_year_sum <- data2 %>% group_by(Sex, Category) %>% summarise(Freq = sum(Number))
+
+data2_year
+data2_year_sum
+
+ggplot(filter(data2_year, Category == "S&E"), aes(fill=Sex, y=Freq, x=Year)) + 
+    geom_bar(position="dodge", stat="identity") + 
+  ggtitle("Annual number of male and female students in S&E fields") +
+  scale_x_continuous(breaks = seq(2000, 2022, by = 1)) +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+ggplot(filter(data2_year_sum, Category == "S&E"), aes(fill=Sex, y=Freq, x=Sex)) +
+    geom_bar(position="dodge", stat="identity") + 
+  ggtitle("Total number of male and female students in S&E fields from 2006 to 2016") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 5000000, by=1000000))
+
+```
+
+## Women in Data Science
+
+From 2006 to 2016 male students outnumber female students by the approximate ratio of 8 to 3.
+
+``` {r eval=TRUE}
+data2 <- data2 %>% mutate(Category2 = if_else(Field %in% c("Computer sciences", "Mathematics and statistics"), "Data Science", "Non-Data Science"))
+
+data2_year_ds <- data2 %>% group_by(Year, Sex, Category2) %>% summarise(Freq = sum(Number))
+
+data2_year_ds_sum <- data2 %>% group_by(Sex, Category2) %>% summarise(Freq = sum(Number))
+
+data2_year_ds <- filter(data2_year_ds, Category2 == "Data Science") 
+
+data2_year_ds_sum <- filter(data2_year_ds_sum, Category2 == "Data Science") 
+
+data2_year_ds
+data2_year_ds_sum
+
+ggplot(filter(data2_year_ds, Category2 == "Data Science"), aes(fill=Sex, y=Freq, x=Year)) + 
+    geom_bar(position="dodge", stat="identity") + 
+  ggtitle("Annual number of male and female students in Data Science") +
+  scale_x_continuous(breaks = seq(2000, 2022, by = 1)) +
+  scale_y_continuous(labels = comma, breaks = seq(0, 150000, by=10000))
+
+ggplot(data2_year_ds_sum, aes(fill=Sex, y=Freq, x=Sex)) +
+    geom_bar(position="dodge", stat="identity") + 
+  ggtitle("Total number of male and female students in Data Science from 2006 to 2016") +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1000000, by=100000))
+
+```
+
+## Conclusion
+
+More males pursue science-related fields. From 2006 to 2016, 51.6% of those who pursue S&E fields across all degrees are male. The gap becomes more pronounced when measuring males in data science. From 2006 to 2016, males make up approximately 62.5% of those who pursue data science related degrees.
+
+The dataset seems to suffice for the purposes of the study. However it could be beneficial to have a more granular view of the majors being pursued (i.e. instead of 'engineering' we have chemical engineering, mechanical engineering, etc). And one way we can improve the study is by measuring also how women are being represented in each of these fields. For example, in the field of Psychology and Social sciences women significantly outnumber men, and in the field of Data Science the reverse is true, as we have seen above.
+
+```{r eval=FALSE}
+ggplot(filter(data2_year, Category == "S&E"), aes(fill=Sex, y=Freq, x=Year)) + 
+    geom_bar(position="dodge", stat="identity") + 
+  ggtitle("Annual number of male and female students in S&E fields") +
+  scale_x_continuous(breaks = seq(2000, 2022, by = 1)) +
+  scale_y_continuous(labels = comma, breaks = seq(0, 1500000, by=100000))
+
+ggplot(filter(data2_year_ds, Category2 == "Data Science"), aes(fill=Sex, y=Freq, x=Year)) + 
+    geom_bar(position="dodge", stat="identity") + 
+  ggtitle("Annual number of male and female students in Data Science") +
+  scale_x_continuous(breaks = seq(2000, 2022, by = 1)) +
+  scale_y_continuous(labels = comma, breaks = seq(0, 150000, by=10000))
+
+```
+
+
+
+
+
+
