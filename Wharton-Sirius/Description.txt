@@ -1,0 +1,1 @@
+An exploratory data analysis into survey response data to measure the success of Wharton Talk show.

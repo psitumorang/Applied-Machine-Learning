@@ -1,0 +1,191 @@
+---
+title: "(1) Measuring The Success of Wharton Talk Show" 
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$reset(echo = FALSE, results = "hide", fig.width=8, fig.height=4)
+options(scipen = 0, digits = 3)  # controls base R output
+# check if you have ISLR package, if not, install it
+if(!require('pacman')) {install.packages('pacman')}
+pacman::p_load(ISLR, readxl, tidyverse, magrittr, dplyr, ggplot2)
+
+
+# load the data.table module 
+library("data.table") 
+```
+
+
+\pagebreak
+
+# Overview
+
+Measuring the success of the Wharton Talk Show [Business Radio Powered by the Wharton School](https://businessradio.wharton.upenn.edu/)  
+
+The goal of this study is to assess the popularity of Business Radio ('the Wharton Talkshow') among SiriusXM listeners. Specifically we want to estimate p, the proportion of SiriusXM listeners who listens to the talkshow.
+
+The raw data is stored as `Survey_results_final.csv` on Canvas.
+
+## Data preparation
+
+i. clean and select only the variables of interest. 
+
+Change the variable names to be "age", "gender", "education", "income", "sirius", "wharton", "worktime".
+
+```{r eval=F}
+file <- "Survey_results_final.csv"
+data_raw <- read.csv(file)
+
+
+# select columns
+data_raw <- data_raw %>% select(Answer.Age, Answer.Gender, Answer.Education, Answer.HouseHoldIncome, Answer.Sirius.Radio, Answer.Wharton.Radio, WorkTimeInSeconds)
+
+# rename columns
+setnames(data_raw, old = c('Answer.Age','Answer.Gender','Answer.Education','Answer.HouseHoldIncome', 'Answer.Sirius.Radio', 'Answer.Wharton.Radio', 'WorkTimeInSeconds'), new = c('age','gender','education', 'income', 'sirius', 'wharton', 'worktime'))
+
+```
+
+ii. Handle missing/wrongly filled values of the selected variables
+
+```{r eval=F}
+
+### process age. Since age is numeric we use can use mean to replace invalid/missing values.
+
+data_raw$age <- as.numeric(data_raw$age)
+# ages 4 and 223 don't make sense
+data_raw$age[data_raw$age == 4 | data_raw$age ==223] <- NA
+data_raw$age[is.na(data_raw$age)] <- mean(data_raw$age, na.rm=TRUE)
+# see if values look right
+unique(data_raw$age)
+
+#define Mode
+Mode <- function(x) {
+ux <- unique(x)
+ux[which.max(tabulate(match(x, ux)))]
+}
+
+### process gender, education, income, sirius, and wharton. Since these are categorical we use Mode to replace missing/invalid values.
+data_raw$gender[data_raw$gender == ""] <- Mode(data_raw$gender)
+data_raw$education[data_raw$education == "select one" | data_raw$education == "Other"] <- Mode(data_raw$education)
+data_raw$income[data_raw$income == ""] <- Mode(data_raw$income)
+data_raw$sirius[data_raw$sirius == ""] <- Mode(data_raw$sirius)
+data_raw$wharton[data_raw$wharton == ""] <- Mode(data_raw$wharton)
+
+data <- data_raw
+```
+
+iii. Brief summary 
+
+1. Sample size: 1,764
+2. Number of Sirius listeners: 1,365
+3. Number of Wharton listeners (out of 1,365 Sirius listeners): 68
+4. P: 0.0498 <- (68/1,365)
+
+Observations: Some responses are bogus responses given by programs. For example, one record show a worktime of 4 seconds (while there are 7 responses required). Two responses answered 'No' to being a Sirius listener and 'Yes' to being a Wharton listener.
+
+
+```{r eval=FALSE}
+# summary stats
+summary <- summary(data)
+sample_size <- data %>% summarise(count = n())
+
+# data on folks who answered 'Yes' to listening to Sirius and Wharton
+wharton_listeners <- data[data$sirius == 'Yes' & data$wharton == 'Yes', ]
+
+# p
+p <- nrow(wharton_listeners)/nrow(data[data$sirius == 'Yes', ])
+  
+# stats for numeric features (age and worktime)
+age_stats <- data %>% select(age) %>% 
+  summarise(
+     mean = mean(age),
+     sd   = sd(age),
+     max = max(age),
+     min = min(age),
+     "0%" = quantile(age)[1],
+     "25%" = quantile(age)[2],
+     "50%" = quantile(age)[3],
+     "75%" = quantile(age)[4],
+     "100%" = quantile(age)[5]
+)
+
+worktime_stats <- data %>% select(worktime) %>% 
+  summarise(
+    mean = mean(worktime),
+    sd   = sd(worktime),
+    max = max(worktime),
+    min = min(worktime),
+    "0%" = quantile(worktime)[1],
+    "25%" = quantile(worktime)[2],
+    "50%" = quantile(worktime)[3],
+    "75%" = quantile(worktime)[4],
+    "100%" = quantile(worktime)[5]
+)
+
+# stats for categorical features (gender, education, income, sirius, wharton)
+gender_stats <- data %>% group_by(gender) %>% summarise(count = n()) %>% mutate(proportion = (count / sum(count)))
+
+education_stats <- data %>% group_by(education) %>% summarise(count = n()) %>% mutate(proportion = (count / sum(count)))
+
+income_stats <- data %>% group_by(income) %>% summarise(count = n()) %>% mutate(proportion = (count / sum(count)))
+
+sirius_stats <- data %>% group_by(sirius) %>% summarise(count = n()) %>% mutate(proportion = (count / sum(count)))
+
+wharton_stats <- data %>% group_by(wharton) %>% summarise(count = n()) %>% mutate(proportion = (count / sum(count)))
+```
+
+** GRAPHS **
+
+``` {r}
+# age distribution
+ggplot(data, aes(x=age)) +
+    geom_histogram(binwidth=.5, colour="black", fill="white") +
+    geom_vline(aes(xintercept=mean(age, na.rm=T)),   
+               color="blue", linetype="dashed", size=1)
+
+# gender
+ggplot(gender_stats, aes(x = gender, y = count)) + geom_bar(stat = "identity", width=.5, colour="blue", fill="blue")
+
+# education
+ggplot(education_stats, aes(x = education, y = count)) + geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") + coord_flip()
+
+# income
+ggplot(income_stats, aes(x = income, y = count)) + geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") + coord_flip()
+
+# sirius
+ggplot(sirius_stats, aes(x = sirius, y = count)) + geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") + coord_flip()
+
+# wharton
+ggplot(wharton_stats, aes(x = wharton, y = count)) + geom_bar(stat = "identity", width=.5, colour="blue", fill="blue") + coord_flip()
+
+# worktime distribution
+ggplot(data, aes(x=worktime)) +
+    geom_histogram(binwidth=.5, colour="black", fill="white") +
+    geom_vline(aes(xintercept=mean(worktime, na.rm=T)),   
+               color="blue", linetype="dashed", size=1)
+
+
+```
+
+
+## Sample properties
+
+
+The population from which the sample is drawn determines where the results of our analysis can be applied or generalized. We include some basic demographic information for the purpose of identifying sample bias, if any exists.
+
+There are age and gender biases. Sample is biased to younger age range, older generations such as gen x and baby boomers are conspicuously underrepresented. and sample is male-biased, sample is ~57.8% male whereas population is just under 50% male in 2014.
+
+There is less evidence for sample bias with respect to income. Mean personal income in U.S. was approx. USD43k in 2014 (https://fred.stlouisfed.org/series/MAPAINUSA646N), and the sample largely reflects this (assuming normal distribution with mean of USD43k) 
+
+## Summary
+
+The goal of this study is to assess the popularity of Business Radio ('the Wharton Talkshow') among SiriusXM listeners. Specifically we want to estimate p, the proportion of SiriusXM listeners who listens to the talkshow.
+
+Replaced missing and invalid values with mean for numeric features and mode for categorical features. Estimated from the sample that 4.98% of SiriusXM listeners (~2.57 million) have listened to the Wharton talkshow at least once.
+
+There is evidence for sampling bias in the data we collected. Older generations such as gen x and baby boomers are conspicuously underrepresented in the sample data. The data is also male-biased, as ~57.8% of the respondents are male whereas U.S. population percentage is just under 50%.
+
+
+
+
