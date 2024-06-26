@@ -1,0 +1,3 @@
+Applying random forest, logistic regression, LASSO, and an ensemble method to perform sentiment analysis on Yelp review data and build classifiers predicting rating based on words.
+
+Concepts: Random forest, logistic regression, Lasso, Ensemble

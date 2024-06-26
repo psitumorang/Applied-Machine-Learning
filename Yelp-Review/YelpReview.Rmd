@@ -1,0 +1,381 @@
+---
+title: "Yelp Review"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.height=4, fig.width=6, warning = F)
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(randomForest, tree, ISLR, rpart, rattle, pROC, partykit, ggplot2, glmnet, leaps, dplyr, keras, neuralnet, imager, ranger, tidyverse, tidytext, lubridate, car, tm,  RColorBrewer, wordcloud, wordcloud2)
+```
+
+# Overview
+
+```{r}
+pacman::p_load(jsonlite)
+yelp_data <- jsonlite::stream_in(file("yelp_review_20k.json"), verbose = F)
+#str(yelp_data)  
+
+# different JSON format
+# tmp_json <- toJSON(yelp_data[1:10,])
+# fromJSON(tmp_json)
+```
+
+```{r}
+yelp_data <- yelp_data %>% mutate(year = year(date)) %>% mutate(month = month(date)) %>% mutate (day = day(date)) %>% mutate(weekday = wday(date, label=TRUE, abbr=FALSE)) %>% mutate(fMonth = as.factor(month)) %>% mutate(fDay = as.factor(day))
+```
+
+```{r}
+min(yelp_data$date)
+max(yelp_data$date)
+```
+
+No, partial f-test below shows that, controlling for year, both month of the year and days of the week are not significant at 0.05 level in determining the number of stars a review has.
+
+```{r}
+fit.eda.1 <- lm(stars ~ year, data = yelp_data)
+fit.eda.2 <- lm(stars ~ year + fMonth, data = yelp_data)
+anova(fit.eda.1, fit.eda.2)
+```
+
+```{r}
+fit.eda.3 <- lm(stars ~ year + weekday, data = yelp_data)
+anova(fit.eda.1, fit.eda.3)
+```
+
+Extract document term matrix for texts to keep words appearing at least .5% of the time among all 20000 documents. Go through the similar process of cleansing as we did in the lecture. 
+
+```{r}
+data.text <- yelp_data$text
+mycorpus1 <- VCorpus(VectorSource(data.text))
+```
+
+```{r}
+# Converts all words to lowercase
+mycorpus_clean <- tm_map(mycorpus1, content_transformer(tolower))
+
+# Removes common English stopwords (e.g. "with", "i")
+mycorpus_clean <- tm_map(mycorpus_clean, removeWords, stopwords("english"))
+
+# Removes any punctuation
+# NOTE: This step may not be appropriate if you want to account for differences
+#       on semantics depending on which sentence a word belongs to if you end up
+#       using n-grams or k-skip-n-grams.
+#       Instead, periods (or semicolons, etc.) can be replaced with a unique
+#       token (e.g. "[PERIOD]") that retains this semantic meaning.
+mycorpus_clean <- tm_map(mycorpus_clean, removePunctuation)
+
+# Removes numbers
+mycorpus_clean <- tm_map(mycorpus_clean, removeNumbers)
+
+# Stem words
+mycorpus_clean <- tm_map(mycorpus_clean, stemDocument, lazy = TRUE) 
+```
+
+```{r}
+dtm1 <- DocumentTermMatrix(mycorpus_clean)
+```
+
+```{r}
+threshold <- .005*length(mycorpus_clean)   # .5% of the total documents = .005 of the total documents
+words.1 <- findFreqTerms(dtm1, lowfreq=threshold) 
+dtm2<- DocumentTermMatrix(mycorpus_clean, control = list(dictionary = words.1))
+dim(dtm2)
+```
+ 
+This matrix records the frequency of each selected word at each yelp review review. The cell number at row 100 and column 405 is 0. The 0 represents the number of times the word 'driver' appears in review associated with row 100 (driver is the word associated with column 405).
+
+```{r}
+inspect(dtm2[100,405])
+```
+
+
+Inspect(dtm2) shows a 98% sparsity, which means 98% of the cells of the dataframe/ elements of the matrix has '0' as value.
+
+```{r}
+inspect(dtm2)
+```
+
+iii. Set the stars as a two category response variable called rating to be “1” = 5,4 and “0”= 1,2,3. Combine the variable rating with the dtm as a data frame called data2. 
+
+```{r}
+yelp_data <- yelp_data %>% mutate(rating = ifelse(stars >3, 1, 0))
+```
+
+```{r}
+rating <- yelp_data$rating
+data2 <- cbind(dtm2, rating)
+data2 <- data.frame(as.matrix(data2))  
+data2 <- data2 %>% rename(rating = V1462)
+
+#data2[,1461:1462]
+```
+
+## Analysis
+
+Get a training data with 13000 reviews and the 5000 reserved as the testing data. Keep the rest (2000) as our validation data set. 
+
+```{r}
+set.seed(1) 
+n <- nrow(data2)
+train.index <- sample(n, 13000)
+data2.train <- data2[train.index,] 
+data2.leftover <- data2[-train.index,]
+
+dim(data2.train)
+dim(data2.leftover)
+```
+```{r}
+set.seed(1)
+n.leftover <- nrow(data2.leftover)
+test.index <- sample(n.leftover, 5000)
+
+data2.test <- data2.leftover[test.index,] 
+data2.validate <- data2.leftover[-test.index,]
+
+dim(data2.test)
+dim(data2.validate)
+```
+
+## 2. LASSO
+
+
+```{r}
+y <- data2.train$rating
+#data2.train$rating
+X1 <- sparse.model.matrix(rating~., data=data2.train)[, -1]
+
+set.seed(1)
+result.lasso <- cv.glmnet(X1, y, alpha=1, family="binomial")
+plot(result.lasso)
+```
+```{r}
+coef.1se <- coef(result.lasso, s="lambda.1se")  
+coef.1se <- coef.1se[which(coef.1se !=0),] 
+lasso.words <- rownames(as.matrix(coef.1se))[-1]
+summary(lasso.words)
+```
+
+The two leading words are 'bomb' and 'cheesi', with coefficients 2.60 and 2.37 respectively. The positive coefficients indicate that having these two words in a review makes it more likely that the review is a positive one. 
+
+```{r}
+sel_cols <- c("rating", lasso.words)
+
+data_sub <- data2.train %>% select(all_of(sel_cols))
+result.glm <- glm(rating~., family=binomial, data_sub)
+```
+
+```{r}
+result.glm.coef <- coef(result.glm)
+hist(result.glm.coef)
+```
+
+```{r}
+coef_df <- data.frame(result.glm.coef) 
+coef_df <- coef_df %>% arrange(desc(result.glm.coef)) 
+coef_df <- coef_df %>% mutate(rank = row_number())
+coef_df
+```
+
+Make a word cloud with the top 100 positive words according to their coefficients. Interpret the cloud briefly.
+
+```{r}
+good.glm <- result.glm.coef[which(result.glm.coef > 0)]
+good.glm <- good.glm[-1]  # took intercept out
+names(good.glm)[1:20]  # which words are positively associated with good ratings
+
+good.fre <- sort(good.glm, decreasing = TRUE) # sort the coef's
+round(good.fre, 4)[1:20] # leading 20 positive words, amazing!
+length(good.fre)
+
+# hist(as.matrix(good.fre), breaks=30, col="red") 
+good.word <- names(good.fre)  
+
+#length(good.word)
+```
+
+```{r}
+cor.special <- brewer.pal(8,"Dark2")  
+wordcloud(good.word[1:100], good.fre[1:100], colors=cor.special, ordered.colors=F)
+```
+
+Repeat i) and ii) for the bag of negative words.
+
+```{r}
+bad.glm <- result.glm.coef[which(result.glm.coef < 0)]
+cor.special <- brewer.pal(6,"Dark2")
+bad.fre <- sort(-bad.glm, decreasing = TRUE)
+```
+
+```{r}
+bad.word <- names(bad.fre)
+wordcloud(bad.word[1:100], bad.fre[1:100],color=cor.special, ordered.colors=F, min.freq = 100)
+```
+
+
+Some words are strongly associated with positive reviews whereas others, negative reviews. The negative words seem to indicate that a negative experience is a strong driver for a person to write a review - words such as "horrible", "worst", and "disgust" are expressive of the writer's emotions. 
+
+Overall, the final list of positive and negative coefficient words makes sense. The words with positive coefficient are generally words with positive connotation such as "bomb", "gem", or "awesome" whereas words with negative coefficient are generally words with negative connotation such as "unprofessional", "horrible", "worst", and "disgust."
+
+Using majority votes find the testing errors
+
+i) From Lasso fit 
+
+```{r}
+predict.lasso <- predict(result.lasso, as.matrix(data2.test[, -1]), type = "class", s="lambda.1se")
+  # output majority vote labels
+
+# LASSO testing errors
+mean(data2.test$rating != predict.lasso)  
+```
+```{r}
+predict.lasso.p <- predict(result.lasso, as.matrix(data2.test[, -1]), type = "response", s="lambda.1se")
+
+pROC::roc(data2.test$rating, predict.lasso.p, plot=TRUE)
+```
+
+ii) From logistic regression 
+
+```{r}
+predict.glm <- predict(result.glm, data2.test, type = "response")
+
+# Majority vote
+class.glm <- ifelse(predict.glm > .5, "1", "0")
+
+testerror.glm <- mean(data2.test$rating != class.glm)
+testerror.glm
+```
+
+
+Logistic regression has smaller errors.
+
+## 3. Random Forest  
+
+In Random Forest we first take sets of bootstrap samples. We then use each set of samples to build a decision tree - one tree per set of bootstrap samples. Each tree is limited to be built from a subset of the original predictors, and the number of predictors in the subset is predetermined through a parameter 'mtry.' We then 'bag' the trees by taking the average of the predictions of all the trees.
+
+We first fit a random forest model with 10 mtry's and 300 ntrees. From the initial plot we see that 100 trees is a reasonable point to start, as there isn't much difference in errors between 200 trees and 100 trees. 
+
+We then tune the mtry, seeing the errors at different mtry's by fiting a random forest model using the ranger package and collecting the errors based on 100 ntrees. We see in the plot that testing errors seem to flatten between 40 and 50 mtry's so we select 45 as the number of mtrys.
+
+The final set of hyperparameters is (ntree= 100, mtry=45). Using these and majority vote criteria, final testing error equals 0.1544.
+
+```{r}
+set.seed(1)
+fit.rf <- randomForest(rating~., data2.train, mtry=10, ntree=300)
+plot(fit.rf, col="red", pch=16, type="p", main="default plot, ")
+```
+```{r}
+rf.error.p <- 1:50
+for (p in 1:50) 
+{
+  fit.rf.ranger.p <- ranger::ranger(rating~., data2.train, num.trees = 100, mtry = p, importance="impurity")
+  rf.error.p[p] <- fit.rf.ranger.p$prediction.error  
+}
+rf.error.p   
+
+plot(1:50, rf.error.p, pch=50,
+     main = "Testing errors of mtry with 100 trees",
+     xlab="mtry",
+     ylab="OOB mse of mtry")
+lines(1:50, rf.error.p)
+```
+
+```{r}
+set.seed(1)
+fit.rf.ranger <- ranger::ranger(rating~., data2.train, num.trees = 100, mtry = 45, importance="impurity")
+fit.rf.ranger$prediction.error
+imp <- importance(fit.rf.ranger)
+imp[order(imp, decreasing = T)][1:20]
+```
+
+```{r}
+predict.rf <- predict(fit.rf.ranger, data=data2.test, type="response")  
+class.rf <- data.frame(predict.rf$predictions) 
+
+# majority vote
+class.rf <- class.rf %>% mutate(prediction = ifelse(predict.rf.predictions > .5, "1", "0"))
+mean(data2.test$rating != class.rf$prediction)
+```
+
+
+take 750 PC's as it explains roughly 75% of the variance of the original dataset. 
+
+```{r}
+pc.train <- prcomp(data2.train[, -c(1)], scale=TRUE)
+pc.train.scores <- pc.train$x
+
+```
+
+```{r}
+plot(summary(pc.train)$importance[3, ], pch=16,
+  ylab="Cumulative PVE",
+  xlab="Number of PC's",
+  main="Scree Plot of Cumulative PVE")
+
+#summary(pc.train)$importance[3, 750]
+#summary(pc.train)
+```
+
+
+```{r}
+# we select 750 principal components to build the model
+pc.train.750 <- pc.train.scores[, c(1:750)]
+pc.train.750 <- data.frame(pc.train.750) %>% mutate(rating = data2.train$rating)
+#dim(pc.train.750)
+```
+```{r}
+set.seed(1)
+fit.rf.ranger.pc <- ranger::ranger(rating~., pc.train.750, num.trees = 100, mtry = 45, importance="impurity")
+fit.rf.ranger.pc$prediction.error
+imp <- importance(fit.rf.ranger.pc)
+imp[order(imp, decreasing = T)][1:20]
+```
+
+The testing error is 0.4288, which is worse than 0.1544 obtain using original inputs.
+
+```{r}
+pc.test <- prcomp(data2.test[, -c(1)], scale=TRUE)
+pc.test.scores <- pc.test$x
+
+```  
+```{r}
+# we select 750 principal components to test
+pc.test.750 <- pc.test.scores[, c(1:750)]
+pc.test.750 <- data.frame(pc.test.750) %>% mutate(rating = data2.test$rating)
+```
+
+```{r}
+predict.rf.pc <- predict(fit.rf.ranger.pc, data=pc.test.750, type="response")  
+class.rf.pc <- data.frame(predict.rf.pc$predictions) 
+
+# majority vote
+class.rf.pc <- class.rf.pc %>% mutate(prediction = ifelse(predict.rf.pc.predictions > .5, "1", "0"))
+mean(pc.test.750$rating != class.rf.pc$prediction)
+```
+
+## 6. Ensemble model
+
+Take the average of the predictions generated by the logistic regression model and the random forest models, and applied majority vote. The ensemble's test error is 0.1264.
+
+```{r}
+ensemble <- data.frame(cbind (predict.glm, predict.rf$predictions))
+ensemble <- ensemble %>% rename(predict.rf = V2)
+ensemble <- ensemble %>% rowwise() %>% 
+    mutate(average =mean(c(predict.glm, predict.rf)))
+```
+
+```{r}
+ensemble <- ensemble %>% mutate(prediction = ifelse(average > .5, "1", "0"))
+mean(data2.test$rating != ensemble$prediction)
+```
+
+
+
+
+
+
+
+
+
+
+
