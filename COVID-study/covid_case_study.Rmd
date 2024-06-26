@@ -1,0 +1,443 @@
+---
+title: "COVID-19 Case Study"
+output: html_document
+---
+
+```{r Setup, include=FALSE, results='hide', warning=FALSE}
+knitr::opts_chunk$set(echo = T, fig.width=8, fig.height=4)
+options(scipen = 0, digits = 3)  # controls base R output
+
+# Package setup
+if(!require("pacman")) install.packages("pacman")
+
+pacman::p_load(tidyverse, dplyr, ggplot2, ggthemes, data.table, lubridate, leaps,
+               GGally, RColorBrewer, ggsci, plotROC, usmap, gridExtra, sandwich,
+               plotly, ggpubr, vistime, glmnet, mltools, car)
+
+gctorture(FALSE)
+```
+
+# Background
+
+The outbreak of the novel Corona virus disease 2019 (COVID-19) [was declared a public health emergency of international concern by the World Health Organization (WHO) on January 30, 2020](https://www.who.int/dg/speeches/detail/who-director-general-s-statement-on-ihr-emergency-committee-on-novel-coronavirus-(2019-ncov)). Upwards of [112 million cases have been confirmed worldwide, with nearly 2.5 million associated deaths](https://covid19.who.int/). Within the US alone, there have been [over 500,000 deaths and upwards of 28 million cases reported](https://covid.cdc.gov/covid-data-tracker/#trends_dailytrendscases). Governments around the world have implemented and suggested a number of policies to lessen the spread of the pandemic, including mask-wearing requirements, travel restrictions, business and school closures, and even stay-at-home orders. The global pandemic has impacted the lives of individuals in countless ways, and though many countries have begun vaccinating individuals, the long-term impact of the virus remains unclear.
+
+The impact of COVID-19 on a given segment of the population appears to vary drastically based on the socioeconomic characteristics of the segment. In particular, differing rates of infection and fatalities have been reported among different [racial groups](https://www.cdc.gov/coronavirus/2019-ncov/covid-data/investigations-discovery/hospitalization-death-by-race-ethnicity.html), [age groups](https://www.cdc.gov/coronavirus/2019-ncov/covid-data/investigations-discovery/hospitalization-death-by-age.html), and [socioeconomic groups](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7221360/). One of the most important metrics for determining the impact of the pandemic is the death rate, which is the proportion of people within the total population that die due to the the disease. 
+
+There are two main goals for this case study. 
+
+1. Show the dynamic evolvement of COVID cases and COVID-related death at state level.
+2. Try to figure out what county-level demographic and policy interventions are associated with mortality rate in the US. We try to construct models to find possible factors related to county-level COVID-19 mortality rates.
+
+  
+
+# Data Summary
+
+The data comes from several different sources: 
+
+1. [County-level infection and fatality data](https://github.com/nytimes/covid-19-data) - This dataset gives daily cumulative numbers on infection and fatality for each county. 
+    * [NYC data](https://github.com/nychealth/coronavirus-data)
+2. [County-level socioeconomic data](https://www.ers.usda.gov/data-products/atlas-of-rural-and-small-town-america/download-the-data/) - The following are the four relevant datasets from this site.   
+    i. Income - Poverty level and household income. 
+    ii. Jobs - Employment type, rate, and change.
+    iii. People - Population size, density, education level, race, age, household size, and migration rates.
+    iv. County Classifications - Type of county (rural or urban on a rural-urban continuum scale).
+3. [Intervention Policy Data](https://github.com/JieYingWu/COVID-19_US_County-level_Summaries/blob/master/data/interventions.csv) - This dataset is a manually compiled list of the dates that interventions/lockdown policies were implemented and lifted at the county level. 
+
+# EDA
+
+First read in the data.
+
+```{r}
+# county-level socialeconomic information
+county_data <- fread("data/covid_county.csv") 
+# county-level COVID case and death
+covid_rate <- fread("data/covid_rates.csv")
+# county-level lockdown dates 
+# covid_intervention <- fread("data/covid_intervention.csv")
+```
+
+```{r}
+# county-level COVID case and death
+#covid_rate <- fread("covid_rates.csv")
+
+```
+
+county_data breaks down various demographic and socioeconomic variables by U.S. county. Each county is uniquely identified by FIPS variable, which identifies the U.S state or territory and county of a given county. States are indicated by the first one or two digits (1 for AL, 2 for AK, ..., 72 for PR) followed by numbers which indicate the county within that state.
+
+Covid_rate breaks down the daily number of COVID cases and deaths of each county (uniquely identified by FIPS). The observations span from January 2020 to February 2021.
+
+## COVID case trend
+
+It is crucial to decide the right granularity for visualization and analysis. We will compare daily vs weekly total new cases by state and we will see it is hard to interpret daily report.
+
+The biggest problem is the volatility in number of new cases per day. It can be difficult to analyze trend when the y variable rises and falls frequently.
+
+```{r}
+num_rows <- nrow(covid_rate)
+cum_cases <- covid_rate$cum_cases
+FIPS <- covid_rate$FIPS
+new_cases <-c(rep(NA,num_rows))
+
+for(i in 2:num_rows){
+  new_case <- cum_cases[i] - cum_cases[i-1]
+  if (FIPS[i] == FIPS[i-1]) {
+    new_cases[i]<- new_case
+  } else {
+    new_cases[i]<- cum_cases[i]
+  }
+}
+
+covid_rate$new_cases <- new_cases
+```
+
+
+```{r}
+covid_rate_NY <- covid_rate %>% filter(State == "New York") %>% group_by(date) %>% summarize(new_cases = sum(new_cases))
+
+covid_rate_NY$Day <-  seq(1, nrow(covid_rate_NY))
+```
+
+```{r}
+covid_rate_WA <- covid_rate %>% filter(State == "Washington") %>% group_by(date) %>% summarize(new_cases = sum(new_cases))
+
+covid_rate_WA$Day <-  seq(1, nrow(covid_rate_WA))
+```
+
+```{r}
+covid_rate_FL <- covid_rate %>% filter(State == "Florida") %>% group_by(date) %>% summarize(new_cases = sum(new_cases))
+
+covid_rate_FL$Day <-  seq(1, nrow(covid_rate_FL))
+```
+
+```{r}
+ggplot(data=covid_rate_NY, aes(date, new_cases)) +
+theme_minimal() +
+geom_line(color = "#00AFBB", size = .4) +
+labs(title = "NY Daily New Cases") 
+```
+
+```{r}
+ggplot(data=covid_rate_WA, aes(date, new_cases)) +
+theme_minimal() +
+geom_line(color = "#FC4E07", size = .4) +
+labs(title = "WA Daily New Cases") 
+```
+
+```{r}
+ggplot(data=covid_rate_FL, aes(date, new_cases)) +
+theme_minimal() +
+geom_line(color = "darkmagenta", size = .4) +
+labs(title = "FL Daily New Cases") 
+```
+
+
+```{r}
+state_pop <- covid_rate %>% group_by(State, County) %>% summarize(county_pop = mean(TotalPopEst2019)) %>% group_by(State) %>% summarize(state_pop = sum(county_pop))
+```
+
+```{r}
+covid_rate_week <- covid_rate %>% group_by(State, week) %>% summarize(weekly_new_cases = sum(new_cases)) 
+```
+
+```{r}
+covid_rate_week <- merge(x=covid_rate_week,y=state_pop,by="State",all.x=TRUE)
+```
+
+```{r}
+covid_rate_week <- covid_rate_week %>% mutate(weekly_case_per100k = (weekly_new_cases/(state_pop) * 100000))
+```
+
+iii) Summarize the COVID case trend among states based on the plot in ii). What could be the possible reasons to explain the variabilities?
+
+```{r}
+covid_wk_rate_NY <- covid_rate_week %>% filter(State == "New York")
+covid_wk_rate_WA <- covid_rate_week %>% filter(State == "Washington")
+covid_wk_rate_FL <- covid_rate_week %>% filter(State == "Florida")
+```
+
+```{r}
+ggplot(data=covid_wk_rate_NY, aes(week, weekly_case_per100k)) +
+theme_minimal() +
+geom_line(color = "#00AFBB", size = .4) +
+labs(title = "NY Weekly New Cases") 
+```
+
+```{r}
+ggplot(data=covid_wk_rate_WA, aes(week, weekly_case_per100k)) +
+theme_minimal() +
+geom_line(color = "#FC4E07", size = .4) +
+labs(title = "WA Weekly New Cases") 
+```
+
+```{r}
+ggplot(data=covid_wk_rate_FL, aes(week, weekly_case_per100k)) +
+theme_minimal() +
+geom_line(color = "#00AFBB", size = .4) +
+labs(title = "FL Weekly New Cases") 
+```
+
+
+## COVID death trend
+
+```{r}
+# create a month index
+month <- substr(unique(covid_rate$date), 1, 7)
+unique_months <- unique(month)
+
+month_index <- arrange_all(data.frame(unique_months))
+index_len <- nrow(month_index)
+month_index <- month_index %>% mutate(month = c(1:index_len))
+```
+
+```{r}
+# create new column to serve as basis of join
+covid_rate <- covid_rate %>% mutate (unique_months = (substr(date, 1, 7)))
+```
+
+```{r}
+# merge the month index
+covid_rate <- merge(x=covid_rate,y=month_index,by="unique_months",all.x=TRUE)
+```
+
+```{r}
+covid_rate_month <- covid_rate %>% group_by(State, month) %>% summarize(weekly_new_cases = sum(new_cases)) 
+```
+
+```{r}
+# compute "new deaths" as we did "new cases" previously
+num_rows <- nrow(covid_rate)
+cum_deaths <- covid_rate$cum_deaths
+FIPS <- covid_rate$FIPS
+new_deaths <-c(rep(NA,num_rows))
+
+for(i in 2:num_rows){
+  new_death <- cum_deaths[i] - cum_deaths[i-1]
+  if (FIPS[i] == FIPS[i-1]) {
+    new_deaths[i]<- new_death
+  } else {
+    new_deaths[i]<- cum_deaths[i]
+  }
+}
+
+covid_rate$new_deaths <- new_deaths
+```
+
+```{r}
+# compute monthly state deaths
+covid_state_deaths <- covid_rate %>% group_by(State, month) %>% summarize(monthly_new_deaths = sum(new_deaths)) 
+```
+
+```{r}
+# merge the state populations column
+covid_state_deaths <- merge(x= covid_state_deaths, y= state_pop, on="State", all.x=TRUE)
+```
+
+```{r}
+# compute deaths per 100k
+covid_state_deaths <- covid_state_deaths %>% mutate(monthly_deaths_per100k = (monthly_new_deaths/(state_pop) * 100000))
+```
+
+```{r}
+# create df for our heatmap
+
+# months 1-12 represent Jan 2020- Dec 2020
+heatmap_df <- covid_state_deaths %>% select(State, month, monthly_deaths_per100k) %>% filter(month <= 12)
+```
+
+```{r}
+# create df for our heatmap
+
+# months 1-12 represent Jan 2020- Dec 2020
+heatmap_df <- covid_state_deaths %>% select(State, month, monthly_deaths_per100k) %>% filter(month <= 12)
+```
+
+```{r}
+# heatmap
+ggplot(heatmap_df, aes(month, State, fill= monthly_deaths_per100k)) + 
+  geom_tile() +
+  scale_fill_gradientn(colours = c("white", "lightblue", "navy"), na.value = "white") +
+  scale_x_continuous(breaks=1:12)
+```
+
+# COVID factor
+
+We now try to build a good parsimonious model to find possible factors related to death rate on county level. Let us not take time series into account for the moment and use the total number as of *Feb 1, 2021*.
+
+```{r}
+feb1 <- covid_rate %>% filter(date == "2021-02-01")
+feb1 <- feb1 %>% mutate(total_death_per100k = (cum_deaths/TotalPopEst2019)*100000)
+feb1 <- feb1 %>% mutate(log_total_death_per100k = log(total_death_per100k + 1))
+feb1 <- feb1 %>% select(FIPS, total_death_per100k, log_total_death_per100k)
+```
+
+```{r}
+# merge
+county_data <- merge(x=county_data, y=feb1, on="FIPS", all.x=TRUE)
+```
+
+
+```{r}
+# added MedHHInc, PerCapitaInc, and PopDensity2010 as possible covariates
+# added response variable total_death_per100k at the end
+
+sel_vars <- county_data %>%
+  select(County, State, FIPS, MedHHInc, PerCapitaInc, Deep_Pov_All, PovertyAllAgesPct, PerCapitaInc, UnempRate2019, PctEmpFIRE, PctEmpConstruction, PctEmpTrans, PctEmpMining, PctEmpTrade, PctEmpInformation, PctEmpAgriculture, PctEmpManufacturing, PctEmpServices, PopDensity2010, OwnHomePct, Age65AndOlderPct2010, TotalPop25Plus, Under18Pct2010, Ed2HSDiplomaOnlyPct, Ed3SomeCollegePct, Ed4AssocDegreePct, Ed5CollegePlusPct, ForeignBornPct, Net_International_Migration_Rate_2010_2019, NetMigrationRate1019, NaturalChangeRate1019, TotalPopEst2019, WhiteNonHispanicPct2010, NativeAmericanNonHispanicPct2010, BlackNonHispanicPct2010, AsianNonHispanicPct2010, HispanicPct2010, Type_2015_Update, RuralUrbanContinuumCode2013, UrbanInfluenceCode2013, Perpov_1980_0711, HiCreativeClass2000, HiAmenity, Retirement_Destination_2015_Update, total_death_per100k)
+```
+
+
+
+```{r}
+# ignoring rows with missing values
+sel_vars <- sel_vars[complete.cases(sel_vars), ] 
+```
+
+We want to force in state as our goal is to analyze COVID-related death rates at state level.
+
+```{r}
+Y <- sel_vars$total_death_per100k
+X <- model.matrix(total_death_per100k~., data=sel_vars)[, -1]
+#colnames(X) dim(X) dim(sel_vars$total_death_per100k) 
+```
+
+```{r}
+# create index needed to force in state vars
+colx <- colnames(X)
+state_index <- c(rep(1, length(colx)))
+
+# we mark State variables with 0s and other variables with 1s
+for (i in 1:length(colx)) {
+  if (startsWith(colx[i], "State")) {
+    state_index[i] <- 0
+  }
+}
+
+#check sum(state_index) length(colnames(X))
+```
+
+```{r}
+# force in state. We use state
+set.seed(10)
+fit.force.cv <- cv.glmnet(X, Y, alpha=1, nfolds=10, intercept = T,
+                       penalty.factor = state_index)  
+
+#summary(fit.cv) names(fit.cv)
+```
+
+```{r}
+#fit.cv$lambda.1se
+coef.1se <- coef(fit.force.cv, s="lambda.1se")  
+coef.1se <- coef.1se[which(coef.1se !=0),] 
+coef.1se
+
+var.1se <- rownames(as.matrix(coef.1se))[-1]
+
+lm.input <- as.formula(paste("total_death_per100k", "~", paste(var.1se, collapse = "+"))) 
+# prepare for lm fomulae
+lm.input
+```
+
+```{r}
+# one hot encode selected data subset
+sel_vars$County <- as.factor(sel_vars$County)
+sel_vars$State <- as.factor(sel_vars$State)
+sel_vars1 <- one_hot(sel_vars)
+
+# remove underscore from column names
+names(sel_vars1)<-gsub("\\_","",names(sel_vars1))
+sel_vars1 <- rename(sel_vars1, total_death_per100k = totaldeathper100k)
+
+# colnames(sel_vars1) sel_vars1$totaldeathper100k sel_vars1$total_death_per100k
+
+```
+
+```{r}
+fit.1se.lm <- lm(lm.input, data=sel_vars1) 
+summary(fit.1se.lm) 
+```
+
+
+```{r}
+data.sub <-  sel_vars1 %>% select(var.1se, "total_death_per100k")
+
+# let's do some column reordering which will help using force.in later while using regsubsets
+
+coln <- colnames(data.sub)
+state_vars <- c()
+nonstate_vars <- c()
+for (i in 1:length(coln)) {
+  if (startsWith(coln[i], "State")) {
+    state_vars <- c(state_vars, coln[i])
+  } else {
+    nonstate_vars <- c(nonstate_vars, coln[i])
+  }
+}
+
+reordered_cols <- c(state_vars, nonstate_vars)
+data.sub <- data.sub %>% select(reordered_cols)
+```
+
+```{r}
+fit.1 <- regsubsets(total_death_per100k~., nvmax = 60, method = "exhau", force.in = c(1:48), really.big=TRUE, data.sub)
+
+summary(fit.1)
+```
+
+```{r}
+plot(summary(fit.1)$cp)  
+```
+```{r}
+# choosing size 9 by elbow rule
+opt.size <- 9
+
+fit.1.s <- summary(fit.1)
+
+var.1 <- fit.1.s$which
+final.var <- colnames(var.1)[var.1[opt.size, ]][-1]
+
+```
+
+```{r}
+final_data <- sel_vars1 %>% select(final.var, total_death_per100k)
+# final fit
+final.fit <- lm(total_death_per100k~., final_data)
+summary(final.fit)
+```
+
+All variables other than State variables are significant at 0.05 level. Yes, the two plots below indicate that the linear model assumptions are sufficiently met.
+
+```{r}
+par(mfrow=c(1,2))
+plot(final.fit, 1)
+plot(final.fit, 2)
+```
+
+
+**Analaysis**  The final variable  Age65AndOlderPct2010 has coefficent of 5.059, which indicate that counties with high percentage of elderly citizens on average have higher death rates. 
+
+The final variable WhiteNonHispanicPct2010 has a -1.070 coefficient, which means that counties with high percentage of non-whites have higher death rates. Since African Americans and Latinos make up approximately 75% of non-whites across the united states, we can surmise that COVID death rate among them are indeed higher. 
+
+The F-test in the first chunk below shows that state variables are significant controlling for other variables selected in the final fit. Summary of the final fit in the next chunk shows that some states such as SD and NJ have higher death rates than others, as indicated by the positive coefficients. A look at the Anova shows that some state variables (such as DC and RI) are insignificant in predicting the death rates.
+
+As stated previously, we find based on our final model that counties with high percentage of elderly population have higher death rates on average. One other interesting finding is that four counties - Emporia, Galax, Gove, and Jerauld - have significantly higher death rates than other counties on average. 
+
+
+```{r}
+# we test the significance of state variables using anova()
+
+# we first fit a linear model regression without the state variables
+data.nonstate <-  data.sub %>% select(nonstate_vars, "total_death_per100k")
+nonstate.fit <- lm(total_death_per100k~., data.nonstate)
+
+# then we use little anova to see the significance
+anova(nonstate.fit, final.fit)
+```
+```{r}
+summary(final.fit)
+```
+
+```{r}
+Anova(final.fit)
+```
+
+One potentially predictive variable is the number of hospitals/health care practitioners per county. We can go further by using number of hospitals per 100k citizens of the county. We hypothesize that it is inversely correlated with death rates. Having information on how much immediate treatment is available compared to the size of population may significantly improve the model. 
+
